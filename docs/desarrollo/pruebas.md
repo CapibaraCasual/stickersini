@@ -48,6 +48,34 @@ de dar la Fase 1 por probada.
 |---|---|---|---|---|
 | `<fecha>` | `<marca y modelo>` | `<versión de Android / API>` | `./gradlew :webp:connectedAndroidTest` | `<pendiente>` |
 
+### Cómo correr la validación en dispositivo
+
+```bash
+adb devices                        # confirmar que el teléfono aparece como "device", no "unauthorized"
+adb shell getprop ro.product.cpu.abi   # confirmar arm64-v8a o x86_64: son las únicas ABI compiladas hoy
+./gradlew :webp:connectedAndroidTest
+```
+
+Si todo va bien: `BUILD SUCCESSFUL`, y en
+`webp/build/reports/androidTests/connected/debug/index.html` los 3 tests de
+`WebpAnimEncoderInstrumentedTest` en verde
+(`codificaTresFotogramasDeColorPlanoYCumpleRF10`,
+`codificaContenidoRuidosoBajandoCalidadHastaCumplirRF10`,
+`rechazaBitmapsDeTamanoDistinto`).
+
+**Síntomas de fallo del NDK (no de la lógica):**
+- `UnsatisfiedLinkError: dlopen failed: library "libstickersini_webp.so" not found` en los 3 tests a la vez, antes de que corra ninguna aserción → la ABI del teléfono no es arm64-v8a ni x86_64 (comprobar con el `getprop` de arriba; ver la nota sobre armeabi-v7a/x86 más abajo).
+- `UnsatisfiedLinkError: No implementation found for ... NativeWebpEncoder.nativeEncode` → el `.so` cargó pero JNI no encontró el símbolo: desajuste entre el nombre mangled de `Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode` en `webp_jni.c` y la firma Kotlin.
+- La instrumentación entera se cae (no reporta tests individuales) y `adb logcat` muestra `Fatal signal` o un tombstone con `libstickersini_webp.so` en la pila → crash nativo real (puntero mal manejado, stride incorrecto), no un fallo de aserción.
+- Cualquier fallo en la fase de instalación del APK antes de "Starting 3 tests" → problema de compilación/empaquetado, no de este código.
+
+**Síntomas de fallo de lógica (el NDK funciona, el resultado está mal):**
+- Mensaje de aserción concreto de JUnit (`expected:<...> but was:<...>`), con las 3 pruebas o solo alguna corriendo hasta el final.
+- `assertIsWebp` falla → los bytes devueltos no empiezan con `RIFF`/`WEBP`: bug de marshaling en `SetByteArrayRegion` o `WebPAnimEncoderAssemble` devolvió algo inesperado, pero el `.so` sí cargó y corrió.
+- La aserción de RF-10 falla (tamaño > 500000) → `QualitySearch`/`WebpAnimEncoder` no está limitando de verdad el tamaño.
+- La aserción `result.quality < QualitySearch.MAX_QUALITY` del test de contenido ruidoso falla → la búsqueda nunca bajó de calidad 100 pese a contenido difícil de comprimir; revisar la lógica de `WebpAnimEncoder`, no el JNI.
+- `rechazaBitmapsDeTamanoDistinto` no lanza `WebpEncodeException` → el chequeo de dimensiones en `webp_jni.c` está mal, pero es un bug de lógica dentro del código nativo, no un fallo de carga/enlace.
+
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 
 Medido en la máquina de desarrollo el 2026-09-20, sin dispositivo: build de
