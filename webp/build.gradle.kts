@@ -12,10 +12,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // arm64-v8a para teléfonos reales, x86_64 para el emulador.
-            // armeabi-v7a queda pendiente de añadir antes de publicar: ver
-            // docs/desarrollo/pruebas.md.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // Las cuatro ABI que Android usa hoy en dispositivos reales.
+            // Sin armeabi-v7a/x86, el AAB no restringía la instalación a
+            // arm64-v8a/x86_64: un teléfono de 32 bits puro instalaba la
+            // app igual y NativeWebpEncoder fallaba al cargar la librería
+            // en cuanto algo la invocara. Ver docs/desarrollo/pruebas.md.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
         }
 
         externalNativeBuild {
