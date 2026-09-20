@@ -88,21 +88,31 @@ páginas de manual de las herramientas de línea de comandos, que no se
 compilan), `swig/` y `webp_js/` (bindings a otros lenguajes y build de
 Emscripten, ninguno relevante aquí), y el build propio de libwebp para
 Autotools/iOS/Gradle a nivel de la raíz del repositorio —
-`configure.ac`, `autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`,
-`gradlew`, `gradlew.bat`, `build.gradle`, `gradle.properties`, `gradle/`, y
-el `Makefile.am` de la raíz — porque tiene su propio empaquetado como AAR
+`autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`, `gradlew`,
+`gradlew.bat`, `build.gradle`, `gradle.properties`, `gradle/`, y el
+`Makefile.am` de la raíz — porque tiene su propio empaquetado como AAR
 independiente que no se usa aquí.
 
-Ojo con un detalle que no es evidente a simple vista: el `CMakeLists.txt` de
-libwebp obtiene la lista de fuentes de cada módulo llamando a
-`parse_makefile_am()` sobre el `Makefile.am` de `src/dec/`, `src/demux/`,
-`src/dsp/`, `src/enc/`, `src/mux/`, `src/utils/` y `sharpyuv/` — es decir, lee
-esos archivos de Autotools como fuente de verdad en vez de listar los `.c`
-directamente en el CMake. Esos `Makefile.am` internos **sí viajan** con la
-copia vendorizada aunque el proyecto use CMake y no Autotools: sin ellos el
-`add_subdirectory()` no sabe qué compilar. Solo se excluye el `Makefile.am`
-de la raíz del repositorio, que es el que arma el build de Autotools
-completo y no lo usa `parse_makefile_am()`.
+Dos detalles que no eran evidentes a simple vista y que solo aparecieron al
+correr `./gradlew :webp:externalNativeBuildDebug` de verdad (ver
+`docs/desarrollo/pruebas.md` y el historial de commits sobre este archivo):
+
+- El `CMakeLists.txt` de libwebp obtiene la lista de fuentes de cada módulo
+  llamando a `parse_makefile_am()` sobre el `Makefile.am` de `src/dec/`,
+  `src/demux/`, `src/dsp/`, `src/enc/`, `src/mux/`, `src/utils/` y
+  `sharpyuv/` — es decir, lee esos archivos de Autotools como fuente de
+  verdad en vez de listar los `.c` directamente en el CMake. Esos
+  `Makefile.am` internos **sí viajan** con la copia vendorizada aunque el
+  proyecto use CMake y no Autotools: sin ellos el `add_subdirectory()` no
+  sabe qué compilar. Solo se excluye el `Makefile.am` de la raíz del
+  repositorio, que es el que arma el build de Autotools completo y no lo usa
+  `parse_makefile_am()`.
+- `cmake/deps.cmake` y el propio `CMakeLists.txt` de libwebp hacen
+  `file(READ .../configure.ac ...)` para extraer el número de versión por
+  regex, aunque el build sea por CMake y no por Autotools. Sin
+  `configure.ac` el configure de CMake falla directamente (`file failed to
+  open for reading`). Así que `configure.ac` **sí viaja** también, pese a
+  ser en apariencia un archivo puramente de Autotools.
 
 Nuestro `webp/src/main/cpp/CMakeLists.txt` hace `add_subdirectory()` sobre
 esa copia con esas opciones en `OFF`, y enlaza contra los targets `webp` y
@@ -122,8 +132,9 @@ sin ningún binding de terceros de por medio.
 | Fecha de esa release | 2025-06-30 |
 | Fecha de la copia a este repo | 2026-09-20 |
 | Licencia | BSD-3-Clause (`COPYING`), más `PATENTS` (concesión de patentes de Google) |
-| Directorios copiados | `src/`, `sharpyuv/`, `cmake/`, `CMakeLists.txt`, `COPYING`, `PATENTS`, `AUTHORS` |
-| Directorios omitidos a propósito | `examples/`, `imageio/`, `tests/`, `doc/`, `man/`, `swig/`, `webp_js/`, `extras/`, y el build propio de libwebp para Autotools/iOS/Gradle a nivel de raíz (`configure.ac`, `autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`, `gradlew`, `build.gradle`, `gradle/`, y el `Makefile.am` de la raíz — no los `Makefile.am` internos de `src/*` y `sharpyuv/`, esos sí viajan porque el CMake los lee) |
+| Directorios copiados | `src/`, `sharpyuv/`, `cmake/`, `CMakeLists.txt`, `COPYING`, `PATENTS`, `AUTHORS`, `configure.ac` |
+| Directorios omitidos a propósito | `examples/`, `imageio/`, `tests/`, `doc/`, `man/`, `swig/`, `webp_js/`, `extras/`, y el resto del build de Autotools/iOS/Gradle a nivel de raíz (`autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`, `gradlew`, `build.gradle`, `gradle/`, y el `Makefile.am` de la raíz — no los `Makefile.am` internos de `src/*` y `sharpyuv/`, esos sí viajan porque el CMake los lee) |
+| Excepciones descubiertas al compilar, no al leer el CMakeLists.txt | `configure.ac` parecía puramente de Autotools y se excluyó en la primera vendorización; `cmake/deps.cmake` lo lee con `file(READ ...)` para sacar el número de versión, así que el configure de CMake fallaba sin él. Se corrigió en un commit aparte tras el primer intento de build real. |
 
 El mismo contenido de esta tabla vive también en
 `webp/src/main/cpp/third_party/libwebp/PROCEDENCIA.md`, para que se pueda

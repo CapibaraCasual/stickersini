@@ -16,15 +16,21 @@ ni una dependencia declarada. Motivo completo en
 ## Qué se copió y qué no
 
 Copiado: `src/`, `sharpyuv/`, `cmake/`, `CMakeLists.txt`, `COPYING`,
-`PATENTS`, `AUTHORS`.
+`PATENTS`, `AUTHORS`, `configure.ac`.
 
 Omitido a propósito: `examples/`, `imageio/`, `tests/`, `doc/`, `man/`,
-`swig/`, `webp_js/`, `extras/`, y el build propio de libwebp para
-Autotools/iOS/Gradle a nivel de raíz (`configure.ac`, `autogen.sh`, `m4/`,
-`iosbuild.sh`, `xcframeworkbuild.sh`, `gradlew`, `build.gradle`, `gradle/`, y
-el `Makefile.am` de la raíz). Los `Makefile.am` **internos** de `src/*` y de
-`sharpyuv/` sí viajan: el `CMakeLists.txt` de libwebp los lee para saber qué
-compilar, aunque este proyecto no use Autotools.
+`swig/`, `webp_js/`, `extras/`, y el resto del build de Autotools/iOS/Gradle
+a nivel de raíz (`autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`,
+`gradlew`, `build.gradle`, `gradle/`, y el `Makefile.am` de la raíz). Los
+`Makefile.am` **internos** de `src/*` y de `sharpyuv/` sí viajan: el
+`CMakeLists.txt` de libwebp los lee para saber qué compilar, aunque este
+proyecto no use Autotools.
+
+`configure.ac` es el mismo caso: parece puramente de Autotools y se excluyó
+en la primera vendorización, pero `cmake/deps.cmake` lo lee con
+`file(READ ...)` para sacar el número de versión por regex. Sin él, el
+configure de CMake falla (`file failed to open for reading`). Se detectó
+al correr el build real, no al leer el `CMakeLists.txt` de antemano.
 
 Nada de esto se modificó a mano. Si algún día hace falta un parche local,
 anotarlo aquí y guardarlo como un `.patch` aparte, no editando el código
