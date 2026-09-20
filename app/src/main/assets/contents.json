@@ -1,0 +1,32 @@
+{
+  "sticker_packs": [
+    {
+      "identifier": "sticker_pack_semilla",
+      "name": "Stickersini",
+      "publisher": "Stickersini",
+      "tray_image_file": "tray.png",
+      "publisher_email": "",
+      "publisher_website": "",
+      "privacy_policy_website": "",
+      "license_agreement_website": "",
+      "animated_pack": false,
+      "stickers": [
+        {
+          "image_file": "sticker_1.webp",
+          "emojis": ["🟥"],
+          "accessibility_text": "Sticker de prueba, cuadrado rojo"
+        },
+        {
+          "image_file": "sticker_2.webp",
+          "emojis": ["🟩"],
+          "accessibility_text": "Sticker de prueba, cuadrado verde"
+        },
+        {
+          "image_file": "sticker_3.webp",
+          "emojis": ["🟦"],
+          "accessibility_text": "Sticker de prueba, cuadrado azul"
+        }
+      ]
+    }
+  ]
+}
