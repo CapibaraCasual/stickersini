@@ -86,9 +86,24 @@ DWEBP, GIF2WEBP, IMG2WEBP, VWEBP, WEBPMUX, WEBPINFO, EXTRAS}` está en `ON`),
 `tests/fuzzer` (solo si `WEBP_BUILD_FUZZTEST=ON`), `man/` (instalación de
 páginas de manual de las herramientas de línea de comandos, que no se
 compilan), `swig/` y `webp_js/` (bindings a otros lenguajes y build de
-Emscripten, ninguno relevante aquí), y el `build.gradle`/`gradlew` propios
-de libwebp (tiene su propio empaquetado como AAR independiente; no se usa
-porque este proyecto lo integra por CMake, no consumiendo su Gradle).
+Emscripten, ninguno relevante aquí), y el build propio de libwebp para
+Autotools/iOS/Gradle a nivel de la raíz del repositorio —
+`configure.ac`, `autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`,
+`gradlew`, `gradlew.bat`, `build.gradle`, `gradle.properties`, `gradle/`, y
+el `Makefile.am` de la raíz — porque tiene su propio empaquetado como AAR
+independiente que no se usa aquí.
+
+Ojo con un detalle que no es evidente a simple vista: el `CMakeLists.txt` de
+libwebp obtiene la lista de fuentes de cada módulo llamando a
+`parse_makefile_am()` sobre el `Makefile.am` de `src/dec/`, `src/demux/`,
+`src/dsp/`, `src/enc/`, `src/mux/`, `src/utils/` y `sharpyuv/` — es decir, lee
+esos archivos de Autotools como fuente de verdad en vez de listar los `.c`
+directamente en el CMake. Esos `Makefile.am` internos **sí viajan** con la
+copia vendorizada aunque el proyecto use CMake y no Autotools: sin ellos el
+`add_subdirectory()` no sabe qué compilar. Solo se excluye el `Makefile.am`
+de la raíz del repositorio, que es el que arma el build de Autotools
+completo y no lo usa `parse_makefile_am()`.
+
 Nuestro `webp/src/main/cpp/CMakeLists.txt` hace `add_subdirectory()` sobre
 esa copia con esas opciones en `OFF`, y enlaza contra los targets `webp` y
 `libwebpmux` (este último es el que expone `WebPAnimEncoder`, declarado en
@@ -108,7 +123,7 @@ sin ningún binding de terceros de por medio.
 | Fecha de la copia a este repo | 2026-09-20 |
 | Licencia | BSD-3-Clause (`COPYING`), más `PATENTS` (concesión de patentes de Google) |
 | Directorios copiados | `src/`, `sharpyuv/`, `cmake/`, `CMakeLists.txt`, `COPYING`, `PATENTS`, `AUTHORS` |
-| Directorios omitidos a propósito | `examples/`, `imageio/`, `tests/`, `doc/`, `man/`, `swig/`, `webp_js/`, `extras/`, y el build propio de libwebp para Autotools/iOS/Gradle (`configure.ac`, `Makefile.am`, `iosbuild.sh`, `xcframeworkbuild.sh`, `gradlew`, `build.gradle`) |
+| Directorios omitidos a propósito | `examples/`, `imageio/`, `tests/`, `doc/`, `man/`, `swig/`, `webp_js/`, `extras/`, y el build propio de libwebp para Autotools/iOS/Gradle a nivel de raíz (`configure.ac`, `autogen.sh`, `m4/`, `iosbuild.sh`, `xcframeworkbuild.sh`, `gradlew`, `build.gradle`, `gradle/`, y el `Makefile.am` de la raíz — no los `Makefile.am` internos de `src/*` y `sharpyuv/`, esos sí viajan porque el CMake los lee) |
 
 El mismo contenido de esta tabla vive también en
 `webp/src/main/cpp/third_party/libwebp/PROCEDENCIA.md`, para que se pueda
