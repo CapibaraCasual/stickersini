@@ -37,6 +37,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":webp"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
 

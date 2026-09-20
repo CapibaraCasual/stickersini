@@ -47,3 +47,37 @@ de dar la Fase 1 por probada.
 | Fecha | Dispositivo | Android | Qué se probó | Resultado |
 |---|---|---|---|---|
 | `<fecha>` | `<marca y modelo>` | `<versión de Android / API>` | `./gradlew :webp:connectedAndroidTest` | `<pendiente>` |
+
+### Peso del AAB por ABI (RNF-07, valida ADR-0002)
+
+Medido en la máquina de desarrollo el 2026-09-20, sin dispositivo: build de
+`:app:bundleRelease` con `app` ya dependiendo de `:webp`
+(`implementation(project(":webp"))`, añadido para esta medición — antes no
+existía esa dependencia y el .aab no habría incluido libwebp en absoluto,
+midiendo lo que no tocaba). Tamaño de descarga estimado por configuración
+vía `bundletool get-size total --dimensions=ABI,SDK`:
+
+| ABI | Descarga estimada (min–max) |
+|---|---|
+| arm64-v8a | 7.92–7.93 MB |
+| x86_64 | 7.97–7.98 MB |
+| armeabi-v7a (sin `.so` de libwebp, no compilado para esta ABI) | 7.67–7.68 MB |
+| x86 (sin `.so` de libwebp, no compilado para esta ABI) | 7.67–7.68 MB |
+
+**Cumple RNF-07** (<15 MB) con margen amplio: la ABI más pesada
+(x86_64) queda a menos de la mitad del límite.
+
+Diferencia atribuible al `.so` de libwebp compilado (release, símbolos
+recortados por AGP): ~243 KB en arm64-v8a, ~289 KB en x86_64 — consistente
+con lo que predecía ADR-0002 ("pesa unos cientos de kilobytes"). El resto
+del peso (~7.4 MB base) es Compose + AndroidX, no libwebp.
+
+Nota aparte de la medición pedida: `armeabi-v7a` y `x86` no tienen
+`.so` de libwebp (`webp/build.gradle.kts` solo compila para `arm64-v8a` y
+`x86_64`, ver Fase 1 más arriba), pero el AAB no restringe la instalación a
+esas dos ABI. Un teléfono real de 32 bits puro instalaría la app y
+`NativeWebpEncoder` fallaría al cargar la librería nativa en cuanto algo la
+invoque. No es un problema hoy (nada en `app` llama todavía al encoder),
+pero hay que resolverlo (compilar también `armeabi-v7a`, o declarar
+`<supports-screens>`/`splits` que excluyan esas ABI) antes de que el editor
+de la Fase 2 dependa de verdad de `:webp`.
