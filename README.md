@@ -25,6 +25,13 @@ En desarrollo. Todavía no hay versión publicada.
   material de marca. Según ADR-0004 el pack semilla es permanente y viaja con
   la app, así que hay que reemplazarlos por diseños definitivos antes de
   publicar. Pendiente de abrir como issue.
+- **TODO (bloqueante de publicación):** RNF-11 exige mostrar dentro de la
+  app los avisos de licencia de las bibliotecas de terceros. Desde ADR-0005
+  el código de libwebp viaja vendorizado en `webp/src/main/cpp/third_party/`
+  en vez de como dependencia declarada en Gradle, así que ninguna
+  herramienta de generación automática de licencias (que lee el grafo de
+  dependencias) lo va a detectar solo. Hay que añadir el `COPYING` de
+  libwebp a la pantalla de licencias a mano. Pendiente de abrir como issue.
 
 ## Instalación
 
