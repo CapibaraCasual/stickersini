@@ -29,7 +29,21 @@ real. Contexto y decisión en ADR-0004.
 |---|---|---|---|---|---|
 | 2026-09-20 | `<marca y modelo>` | `<versión de Android / API>` | `<WhatsApp o WhatsApp Business y versión>` | Botón "Añadir pack a WhatsApp" → confirmación en WhatsApp → bandeja de stickers en un chat | WhatsApp mostró el pack semilla y los 3 stickers aparecieron en la bandeja del chat. Fase 0 cerrada. |
 
-## Fase 1 — codificador (pendiente)
+## Fase 1 — codificador
 
-Sin pruebas todavía. Se añadirán filas aquí cuando haya un WebP animado real
-que probar en dispositivo, no solo en tests unitarios del encoder.
+Objetivo: dado un conjunto de bitmaps, producir un WebP animado de 512×512
+que cumpla RF-10 (≤500 KB), RF-12 (ajuste automático) y RF-13 (fotograma
+≥8 ms, animación ≤10 s). Contexto y decisión en ADR-0005.
+
+Estado al 2026-09-20: `./gradlew :webp:test` (17 tests, lógica de ajuste de
+calidad y fotogramas) y `./gradlew :webp:externalNativeBuildDebug` /
+`:webp:assembleDebug` (compila y enlaza contra libwebp para arm64-v8a y
+x86_64) pasan en la máquina de desarrollo. `WebpAnimEncoderInstrumentedTest`
+(codificación real vía JNI) compila pero no se ha ejecutado todavía: no hubo
+`adb devices` disponible en este entorno. Pendiente de correr
+`./gradlew :webp:connectedAndroidTest` en un teléfono o emulador real antes
+de dar la Fase 1 por probada.
+
+| Fecha | Dispositivo | Android | Qué se probó | Resultado |
+|---|---|---|---|---|
+| `<fecha>` | `<marca y modelo>` | `<versión de Android / API>` | `./gradlew :webp:connectedAndroidTest` | `<pendiente>` |

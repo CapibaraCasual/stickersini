@@ -7,6 +7,16 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Añadido
+- Módulo `:webp`: libwebp v1.6.0 vendorizado (ADR-0005) y capa JNI propia
+  que codifica bitmaps a WebP animado.
+- `WebpAnimEncoder`: ajusta automáticamente calidad y número de fotogramas
+  hasta cumplir el límite de 500 KB (RF-10, RF-12), validando los tiempos de
+  RF-13 antes de codificar.
+
+Pendiente de cerrar la Fase 1: falta correr los tests instrumentados de
+codificación real en un dispositivo (ver `docs/desarrollo/pruebas.md`).
+
 ## [0.1.0-alpha] - 2026-09-20
 
 Cierra la Fase 0: valida que WhatsApp acepta un pack publicado por esta app.
