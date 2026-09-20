@@ -52,7 +52,7 @@ enriquecido), soporte a mensajeros distintos de WhatsApp.
 | **RF-11** | El sistema debe generar stickers estáticos en formato WebP de 512×512 píxeles exactos, con tamaño de archivo menor o igual a 100 KB. |
 | **RF-12** | El sistema debe ajustar automáticamente la calidad y la tasa de fotogramas hasta cumplir los límites de RF-10 y RF-11, informando al usuario si no es posible. |
 | **RF-13** | Cada fotograma de un sticker animado debe tener una duración mínima de 8 milisegundos y la animación completa no debe superar los 10 segundos. |
-| **RF-14** | El sistema debe generar un ícono de bandeja de 96×96 píxeles por cada pack. |
+| **RF-14** | El sistema debe generar un ícono de bandeja en formato PNG de 96×96 píxeles por cada pack. |
 
 ### Packs
 
