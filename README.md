@@ -20,6 +20,12 @@ de internet.
 
 En desarrollo. Todavía no hay versión publicada.
 
+- **TODO (bloqueante de publicación):** los 3 stickers del pack semilla son
+  cuadrados de color plano generados para probar el `ContentProvider`, no
+  material de marca. Según ADR-0004 el pack semilla es permanente y viaja con
+  la app, así que hay que reemplazarlos por diseños definitivos antes de
+  publicar. Pendiente de abrir como issue.
+
 ## Instalación
 
 Próximamente en Google Play. Mientras tanto, compilar desde el código fuente
