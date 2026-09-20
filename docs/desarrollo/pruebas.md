@@ -35,46 +35,84 @@ Objetivo: dado un conjunto de bitmaps, producir un WebP animado de 512×512
 que cumpla RF-10 (≤500 KB), RF-12 (ajuste automático) y RF-13 (fotograma
 ≥8 ms, animación ≤10 s). Contexto y decisión en ADR-0005.
 
-Estado al 2026-09-20: `./gradlew :webp:test` (17 tests, lógica de ajuste de
+Estado al 2026-09-20: `./gradlew :webp:test` (18 tests, lógica de ajuste de
 calidad y fotogramas) y `./gradlew :webp:externalNativeBuildDebug` /
-`:webp:assembleDebug` (compila y enlaza contra libwebp para arm64-v8a y
-x86_64) pasan en la máquina de desarrollo. `WebpAnimEncoderInstrumentedTest`
-(codificación real vía JNI) compila pero no se ha ejecutado todavía: no hubo
-`adb devices` disponible en este entorno. Pendiente de correr
-`./gradlew :webp:connectedAndroidTest` en un teléfono o emulador real antes
-de dar la Fase 1 por probada.
+`:webp:assembleDebug` (compila y enlaza contra libwebp para las cuatro ABI:
+arm64-v8a, armeabi-v7a, x86, x86_64) pasan en la máquina de desarrollo.
+`WebpAnimEncoderInstrumentedTest` (codificación real vía JNI) y
+`WebpAnimEncoderPerformanceTest` (línea base de rendimiento, ver más abajo)
+compilan pero no se han ejecutado todavía: no hubo `adb devices` disponible
+en este entorno. Pendiente de correr `./gradlew :webp:connectedAndroidTest`
+en un teléfono real antes de dar la Fase 1 por probada.
 
 | Fecha | Dispositivo | Android | Qué se probó | Resultado |
 |---|---|---|---|---|
 | `<fecha>` | `<marca y modelo>` | `<versión de Android / API>` | `./gradlew :webp:connectedAndroidTest` | `<pendiente>` |
 
+### Línea base de rendimiento real (RNF-08), pendiente de medir en dispositivo
+
+`ADR-0006` (propuesto, no implementado) se apoyó en una estimación por
+proxy: Pillow con su propia copia de libwebp, en la máquina de desarrollo,
+más un factor de extrapolación 2×-6× a "gama media" sin verificar. Esa
+estimación queda **reemplazada, no confirmada**, por la medición real de
+`WebpAnimEncoderPerformanceTest` en cuanto corra en el teléfono. Hasta
+entonces, cualquier número del ADR-0006 sigue siendo una hipótesis, no un
+hecho.
+
+| Fecha | Dispositivo | Android | Qué se probó | Resultado |
+|---|---|---|---|---|
+| `<fecha>` | `<marca y modelo>` | `<versión de Android / API>` | `WebpAnimEncoderPerformanceTest.lineaBaseDeRendimiento_30fotogramas_contenidoAdverso` (algoritmo sin modificar) | `<pendiente: intentos, ms por intento, tiempo total, ¿cumple los 5 s de RNF-08?>` |
+
+No hay ADR-0006 con alcance definitivo hasta que esta fila tenga datos
+reales.
+
 ### Cómo correr la validación en dispositivo
 
 ```bash
-adb devices                        # confirmar que el teléfono aparece como "device", no "unauthorized"
-adb shell getprop ro.product.cpu.abi   # confirmar arm64-v8a o x86_64: son las únicas ABI compiladas hoy
+adb devices                            # confirmar que el teléfono aparece como "device", no "unauthorized"
+adb shell getprop ro.product.cpu.abi   # informativo: ya se compilan las 4 ABI, cualquier teléfono real sirve
 ./gradlew :webp:connectedAndroidTest
 ```
+
+Este comando corre las tres clases de test instrumentado del módulo:
+`WebpAnimEncoderInstrumentedTest` (correctitud), `WebpAnimEncoderPerformanceTest`
+(línea base de rendimiento) y cualquier otra que se añada después.
 
 Si todo va bien: `BUILD SUCCESSFUL`, y en
 `webp/build/reports/androidTests/connected/debug/index.html` los 3 tests de
 `WebpAnimEncoderInstrumentedTest` en verde
 (`codificaTresFotogramasDeColorPlanoYCumpleRF10`,
 `codificaContenidoRuidosoBajandoCalidadHastaCumplirRF10`,
-`rechazaBitmapsDeTamanoDistinto`).
+`rechazaBitmapsDeTamanoDistinto`), más
+`WebpAnimEncoderPerformanceTest.lineaBaseDeRendimiento_30fotogramas_contenidoAdverso`
+también en verde (no falla por tiempo: no tiene aserción de presupuesto
+todavía). **El número que importa de esta prueba no es que pase, es lo que
+imprime.** Para leerlo sin bucear en el reporte HTML:
+
+```bash
+adb logcat -d -s StickersiniPerfBaseline:I
+```
+
+Debería mostrar una línea por intento de codificación
+(`intento #N: quality=... sizeBytes=... elapsedMs=...`) y una línea `TOTAL`
+con el número de intentos, el tiempo total en ms, y la calidad/tamaño/número
+de fotogramas del resultado final. Ese `tiempoTotalMs` es el que se compara
+contra los 5000 ms de RNF-08 — y esta prueba en concreto usa el algoritmo
+sin ninguna de las mejoras de ADR-0006, a propósito.
 
 **Síntomas de fallo del NDK (no de la lógica):**
-- `UnsatisfiedLinkError: dlopen failed: library "libstickersini_webp.so" not found` en los 3 tests a la vez, antes de que corra ninguna aserción → la ABI del teléfono no es arm64-v8a ni x86_64 (comprobar con el `getprop` de arriba; ver la nota sobre armeabi-v7a/x86 más abajo).
+- `UnsatisfiedLinkError: dlopen failed: library "libstickersini_webp.so" not found` en todos los tests a la vez, antes de que corra ninguna aserción → la ABI del teléfono no tiene `.so` compilado (comprobar con el `getprop` de arriba; con las 4 ABI ya cubiertas esto no debería pasar en ningún teléfono real de los últimos ~10 años).
 - `UnsatisfiedLinkError: No implementation found for ... NativeWebpEncoder.nativeEncode` → el `.so` cargó pero JNI no encontró el símbolo: desajuste entre el nombre mangled de `Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode` en `webp_jni.c` y la firma Kotlin.
 - La instrumentación entera se cae (no reporta tests individuales) y `adb logcat` muestra `Fatal signal` o un tombstone con `libstickersini_webp.so` en la pila → crash nativo real (puntero mal manejado, stride incorrecto), no un fallo de aserción.
-- Cualquier fallo en la fase de instalación del APK antes de "Starting 3 tests" → problema de compilación/empaquetado, no de este código.
+- Cualquier fallo en la fase de instalación del APK antes de "Starting N tests" → problema de compilación/empaquetado, no de este código.
 
 **Síntomas de fallo de lógica (el NDK funciona, el resultado está mal):**
-- Mensaje de aserción concreto de JUnit (`expected:<...> but was:<...>`), con las 3 pruebas o solo alguna corriendo hasta el final.
+- Mensaje de aserción concreto de JUnit (`expected:<...> but was:<...>`), con el resto de las pruebas corriendo hasta el final.
 - `assertIsWebp` falla → los bytes devueltos no empiezan con `RIFF`/`WEBP`: bug de marshaling en `SetByteArrayRegion` o `WebPAnimEncoderAssemble` devolvió algo inesperado, pero el `.so` sí cargó y corrió.
 - La aserción de RF-10 falla (tamaño > 500000) → `QualitySearch`/`WebpAnimEncoder` no está limitando de verdad el tamaño.
 - La aserción `result.quality < QualitySearch.MAX_QUALITY` del test de contenido ruidoso falla → la búsqueda nunca bajó de calidad 100 pese a contenido difícil de comprimir; revisar la lógica de `WebpAnimEncoder`, no el JNI.
 - `rechazaBitmapsDeTamanoDistinto` no lanza `WebpEncodeException` → el chequeo de dimensiones en `webp_jni.c` está mal, pero es un bug de lógica dentro del código nativo, no un fallo de carga/enlace.
+- `WebpAnimEncoderPerformanceTest` termina pero con 0 intentos registrados → algo rompió la inyección de `MeasuringEncoder`, no el algoritmo de ajuste en sí.
 
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 
@@ -109,3 +147,21 @@ invoque. No es un problema hoy (nada en `app` llama todavía al encoder),
 pero hay que resolverlo (compilar también `armeabi-v7a`, o declarar
 `<supports-screens>`/`splits` que excluyan esas ABI) antes de que el editor
 de la Fase 2 dependa de verdad de `:webp`.
+
+**Re-medido el 2026-09-20, tras compilar las 4 ABI** (no se edita la
+medición anterior, se añade esta): mismo procedimiento
+(`:app:bundleRelease` + `bundletool get-size total --dimensions=ABI,SDK`),
+ahora con `webp/build.gradle.kts` compilando `arm64-v8a`, `armeabi-v7a`,
+`x86` y `x86_64`.
+
+| ABI | Descarga estimada (min–max) |
+|---|---|
+| x86 | 7.99–8.03 MB |
+| x86_64 | 7.97–8.01 MB |
+| arm64-v8a | 7.92–7.97 MB |
+| armeabi-v7a | 7.89–7.93 MB |
+
+**Sigue cumpliendo RNF-07** (<15 MB) con margen amplio: la ABI más pesada
+(x86) queda a la mitad del límite. La nota del hueco de ABI de la medición
+anterior queda resuelta: las 4 ABI que usa Android hoy en dispositivos
+reales tienen `.so` de libwebp.
