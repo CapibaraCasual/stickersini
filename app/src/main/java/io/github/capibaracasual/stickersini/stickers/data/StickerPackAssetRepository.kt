@@ -1,13 +1,13 @@
-package io.github.usuario.stickersini.stickers.data
+﻿package io.github.capibaracasual.stickersini.stickers.data
 
 import android.content.Context
-import io.github.usuario.stickersini.stickers.domain.Sticker
-import io.github.usuario.stickersini.stickers.domain.StickerPack
+import io.github.capibaracasual.stickersini.stickers.domain.Sticker
+import io.github.capibaracasual.stickersini.stickers.domain.StickerPack
 import org.json.JSONObject
 
 /**
  * Lee `assets/contents.json` y construye los [StickerPack] que sirve
- * [io.github.usuario.stickersini.provider.StickerContentProvider]. Los bytes
+ * [io.github.capibaracasual.stickersini.provider.StickerContentProvider]. Los bytes
  * de cada sticker viven en `assets/<identifier>/<image_file>`.
  */
 class StickerPackAssetRepository(private val context: Context) {

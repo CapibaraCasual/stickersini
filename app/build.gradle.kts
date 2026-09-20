@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "io.github.usuario.stickersini"
+    namespace = "io.github.capibaracasual.stickersini"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "io.github.usuario.stickersini"
+        applicationId = "io.github.capibaracasual.stickersini"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

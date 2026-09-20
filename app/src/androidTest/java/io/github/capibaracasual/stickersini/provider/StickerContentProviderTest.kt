@@ -1,4 +1,4 @@
-package io.github.usuario.stickersini.provider
+﻿package io.github.capibaracasual.stickersini.provider
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -11,8 +11,8 @@ import org.junit.runner.RunWith
 
 /**
  * Verifica que [StickerContentProvider] responde el contrato WAStickerApps
- * tal como lo consultaría WhatsApp: primero la lista de packs, luego los
- * stickers de un pack, y por último que el asset de cada sticker se puede
+ * tal como lo consultarÃ­a WhatsApp: primero la lista de packs, luego los
+ * stickers de un pack, y por Ãºltimo que el asset de cada sticker se puede
  * abrir de verdad.
  */
 @RunWith(AndroidJUnit4::class)
@@ -58,7 +58,7 @@ class StickerContentProviderTest {
             context.contentResolver.openAssetFileDescriptor(assetUri, "r").use { descriptor ->
                 assertNotNull("No se pudo abrir el asset $fileName", descriptor)
                 checkNotNull(descriptor)
-                assertTrue("$fileName debería pesar más de 0 bytes", descriptor.length > 0)
+                assertTrue("$fileName deberÃ­a pesar mÃ¡s de 0 bytes", descriptor.length > 0)
             }
         }
     }

@@ -1,7 +1,7 @@
-package io.github.usuario.stickersini.stickers.domain
+﻿package io.github.capibaracasual.stickersini.stickers.domain
 
 /**
- * Pack de stickers válido para WhatsApp. Solo se puede construir mediante
+ * Pack de stickers vÃ¡lido para WhatsApp. Solo se puede construir mediante
  * [StickerPack.create], que aplica las validaciones de RF-16 y RF-18 antes de
  * dejar existir un pack inconsistente.
  */
@@ -40,7 +40,7 @@ class StickerPack private constructor(
             }
             val animatedCount = stickers.count { it.isAnimated }
             require(animatedCount == 0 || animatedCount == stickers.size) {
-                "RF-18: \"$identifier\" mezcla stickers animados y estáticos, no está permitido."
+                "RF-18: \"$identifier\" mezcla stickers animados y estÃ¡ticos, no estÃ¡ permitido."
             }
             return StickerPack(
                 identifier = identifier,

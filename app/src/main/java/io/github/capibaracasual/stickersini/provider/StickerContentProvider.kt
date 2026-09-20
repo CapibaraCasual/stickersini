@@ -1,4 +1,4 @@
-package io.github.usuario.stickersini.provider
+﻿package io.github.capibaracasual.stickersini.provider
 
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -7,15 +7,15 @@ import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import io.github.usuario.stickersini.stickers.data.StickerPackAssetRepository
-import io.github.usuario.stickersini.stickers.domain.StickerPack
+import io.github.capibaracasual.stickersini.stickers.data.StickerPackAssetRepository
+import io.github.capibaracasual.stickersini.stickers.domain.StickerPack
 import java.io.FileNotFoundException
 import java.io.IOException
 
 /**
  * Cumple el contrato WAStickerApps (RF-19): expone los packs y sus stickers
  * como cursor de solo lectura y sirve los bytes de cada asset desde
- * `assets/`. Es el único punto de contacto entre esta aplicación y WhatsApp.
+ * `assets/`. Es el Ãºnico punto de contacto entre esta aplicaciÃ³n y WhatsApp.
  */
 class StickerContentProvider : ContentProvider() {
 

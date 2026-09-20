@@ -1,10 +1,10 @@
-package io.github.usuario.stickersini.provider
+﻿package io.github.capibaracasual.stickersini.provider
 
 import android.content.Context
 
 /**
- * Nombres de columna, rutas y acción de intent del contrato WAStickerApps
- * que WhatsApp espera de cualquier aplicación de terceros que publique
+ * Nombres de columna, rutas y acciÃ³n de intent del contrato WAStickerApps
+ * que WhatsApp espera de cualquier aplicaciÃ³n de terceros que publique
  * stickers. No es un contrato propio: lo define WhatsApp y no se puede
  * modificar (ver ADR-0004).
  */

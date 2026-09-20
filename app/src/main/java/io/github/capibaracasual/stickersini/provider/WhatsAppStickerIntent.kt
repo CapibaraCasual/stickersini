@@ -1,11 +1,11 @@
-package io.github.usuario.stickersini.provider
+﻿package io.github.capibaracasual.stickersini.provider
 
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 
 /**
- * Construye el intent de confirmación (RF-20) y detecta si WhatsApp está
+ * Construye el intent de confirmaciÃ³n (RF-20) y detecta si WhatsApp estÃ¡
  * instalado (RF-21), tal como exige WAStickerApps.
  */
 object WhatsAppStickerIntent {

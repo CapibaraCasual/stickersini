@@ -1,4 +1,4 @@
-package io.github.usuario.stickersini.stickers.domain
+﻿package io.github.capibaracasual.stickersini.stickers.domain
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows

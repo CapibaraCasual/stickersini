@@ -1,4 +1,4 @@
-package io.github.usuario.stickersini.ui
+﻿package io.github.capibaracasual.stickersini.ui
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -25,10 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import io.github.usuario.stickersini.R
-import io.github.usuario.stickersini.provider.WaStickerContract
-import io.github.usuario.stickersini.provider.WhatsAppStickerIntent
-import io.github.usuario.stickersini.ui.theme.StickersiniTheme
+import io.github.capibaracasual.stickersini.R
+import io.github.capibaracasual.stickersini.provider.WaStickerContract
+import io.github.capibaracasual.stickersini.provider.WhatsAppStickerIntent
+import io.github.capibaracasual.stickersini.ui.theme.StickersiniTheme
 
 private const val SEED_PACK_IDENTIFIER = "sticker_pack_semilla"
 private const val SEED_PACK_NAME = "Stickersini"
@@ -51,9 +51,9 @@ private fun AddSeedPackScreen() {
     val context = LocalContext.current
     var resultMessage by remember { mutableStateOf<String?>(null) }
 
-    // Los textos se resuelven aquí, dentro de la composición, en vez de con
-    // context.getString() en los callbacks: así siguen los cambios de
-    // configuración (lint LocalContextGetResourceValueCall).
+    // Los textos se resuelven aquÃ­, dentro de la composiciÃ³n, en vez de con
+    // context.getString() en los callbacks: asÃ­ siguen los cambios de
+    // configuraciÃ³n (lint LocalContextGetResourceValueCall).
     val successMessage = stringResource(R.string.result_success)
     val canceledMessage = stringResource(R.string.result_canceled)
     val validationErrorTemplate = stringResource(R.string.result_validation_error)

@@ -1,4 +1,4 @@
-package io.github.usuario.stickersini.ui.theme
+﻿package io.github.capibaracasual.stickersini.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

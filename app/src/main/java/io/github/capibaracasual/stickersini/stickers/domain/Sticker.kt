@@ -1,4 +1,4 @@
-package io.github.usuario.stickersini.stickers.domain
+﻿package io.github.capibaracasual.stickersini.stickers.domain
 
 /**
  * Un sticker dentro de un [StickerPack]. [imageFileName] es el nombre del
@@ -12,7 +12,7 @@ data class Sticker(
 ) {
     init {
         require(emojis.size <= MAX_EMOJIS_PER_STICKER) {
-            "Un sticker admite como máximo $MAX_EMOJIS_PER_STICKER emojis, \"$imageFileName\" tiene ${emojis.size}."
+            "Un sticker admite como mÃ¡ximo $MAX_EMOJIS_PER_STICKER emojis, \"$imageFileName\" tiene ${emojis.size}."
         }
     }
 
