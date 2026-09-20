@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Stickersini</string>
+
+    <string name="add_pack_title">Fase 0 — pack semilla</string>
+    <string name="add_pack_description">Este pack de prueba tiene 3 stickers estáticos generados para validar que WhatsApp acepta un pack publicado por esta app.</string>
+    <string name="add_pack_button">Añadir pack a WhatsApp</string>
+
+    <string name="result_success">WhatsApp confirmó el pack.</string>
+    <string name="result_canceled">WhatsApp devolvió cancelado sin mensaje de error (el pack pudo quedar ya añadido, o el usuario rechazó el diálogo).</string>
+    <string name="result_validation_error">WhatsApp rechazó el pack: %1$s</string>
+    <string name="result_whatsapp_not_installed">No se encontró WhatsApp ni WhatsApp Business instalados.</string>
+    <string name="result_no_activity">WhatsApp no pudo abrir el diálogo de confirmación de stickers.</string>
+</resources>
