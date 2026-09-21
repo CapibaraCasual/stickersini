@@ -451,6 +451,80 @@ Comando (igual que el de la sección anterior, ya no hace falta repetir el
 de correctitud): ver `webp_strategy_trace.txt` vía `adb pull`, comando en
 la sección "Estrategia de ADR-0006, medida en dispositivo" de arriba.
 
+### Orden de búsqueda en el piso: calidad mínima primero (fix sin ADR, dentro de ADR-0007)
+
+Los 175 ms de margen de la sección anterior escondían un riesgo real: la
+bisección de calidad, sembrada desde 75, llegaba a `quality=0` — la única
+que cabía en el peor caso medido — como su *último* intento, no el
+primero. En un teléfono más lento que el Redmi Note 14, el tope de 20 s
+podía cumplirse antes de probar 0, y entonces no había ningún resultado
+válido que devolver: RF-12, sin sticker.
+
+**Qué devolvía el tope hasta este cambio, cuando no había encontrado
+ningún resultado válido todavía:** una excepción (`WebpEncodeException`,
+RF-12) — nada que entregar al usuario. Confirmado leyendo el código antes
+de tocarlo, no supuesto.
+
+**Arreglo:** al llegar a la bisección de calidad ya con el número de
+fotogramas en el piso, se prueba `QualitySearch.MIN_QUALITY` (0) primero
+en vez del punto medio habitual. Si no cabe, se sabe en una sola
+codificación que no hay solución a ese número de fotogramas. Si cabe,
+queda de inmediato como resultado válido garantizado, y el tiempo restante
+se usa para bisecar hacia arriba buscando algo mejor sin arriesgar esa
+garantía. Razonamiento completo en el KDoc de `QualitySearch`. No hizo
+falta ADR nuevo: es una decisión dentro de lo que ya definía ADR-0007, no
+una decisión estructural distinta (ver la actualización añadida al final
+de ese documento).
+
+**Antes y después, mismo dispositivo, mismo contenido adverso (30
+fotogramas de entrada):**
+
+| | Antes (bisección desde 75) | Después (0 primero en el piso) |
+|---|---|---|
+| Orden de calidades probadas en la fase 3 | 37, 18, 8, 3, 1, **0** (último) | **0** (primero), 37, 18, 9, 4, 2 |
+| Resultado válido garantizado desde | ~19.8 s (el último intento) | **~11.1 s** (el tercer intento) |
+| Codificaciones totales | 8 | 8 |
+| Tiempo total de la corrida | 19 825 ms | 21 825 ms |
+| Resultado final | quality=0, 15/30 fotogramas, 348 516 B | mismo: quality=0, 15/30 fotogramas, 348 516 B |
+
+**El tiempo total no mejoró — de hecho fue un poco peor, y esta corrida
+concreta superó el tope de 20 s por ~1.8 s** (la última codificación en
+curso cuando se cumple el tope corre hasta terminar; comportamiento
+documentado, no nuevo). Después de banquear `quality=0`, la búsqueda sigue
+explorando hacia arriba buscando algo mejor, y en este contenido no existe
+nada mejor, así que ese tiempo adicional no encuentra nada — pero tampoco
+pierde la garantía ya conseguida. Eso era exactamente el objetivo pedido:
+no que la corrida sea más rápida, sino que un corte del tope de tiempo en
+cualquier punto después de los ~11.1 s ya no deje a quien usa la app sin
+resultado. El contenido realista no cambió: 1 codificación, 1 229 ms,
+quality=75, 59 672 bytes — igual que en todas las corridas anteriores.
+
+Traza completa (`webp_strategy_trace.txt`, mismo comando de `adb pull` de
+arriba) — nótese `intento #3` como el primero en probar `quality=0`, en
+vez del último:
+
+```
+intento #1: frameCount=30 quality=75 sizeBytes=4838184 elapsedMs=6285
+intento #2: frameCount=15 quality=75 sizeBytes=2418984 elapsedMs=2939
+intento #3: frameCount=15 quality=0  sizeBytes=348516  elapsedMs=1865  <- ya hay resultado válido
+intento #4: frameCount=15 quality=37 sizeBytes=1870764 elapsedMs=2300
+intento #5: frameCount=15 quality=18 sizeBytes=1458716 elapsedMs=2188
+intento #6: frameCount=15 quality=9  sizeBytes=1180814 elapsedMs=2118
+intento #7: frameCount=15 quality=4  sizeBytes=934942  elapsedMs=2051
+intento #8: frameCount=15 quality=2  sizeBytes=787848  elapsedMs=2020
+TOTAL: codificaciones=8 tiempoTotalMs=21825 outcome=exito resultadoQuality=0 resultadoBytes=348516 resultadoFrameCount=15
+```
+
+**Pendiente, no cubierto por esta medición:** que la corrida completa haya
+superado el tope de 20 s (21 825 ms) es un dato nuevo, no solo un margen
+estrecho como antes. Ningún cambio de este turno lo dirige — el objetivo
+pedido era la garantía de resultado, no el cumplimiento estricto del
+tiempo total, y quedó explícitamente fuera de alcance. Si en el futuro se
+decide que el tiempo total también debe respetarse de forma estricta, una
+palanca disponible (no implementada) es dejar de buscar una calidad mejor
+en cuanto ya hay un resultado válido banqueado y quede poco tiempo, en vez
+de seguir intentando mejorar hasta que el tope corte.
+
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 
 Medido en la máquina de desarrollo el 2026-09-20, sin dispositivo: build de
