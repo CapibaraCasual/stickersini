@@ -1,5 +1,7 @@
 package io.github.capibaracasual.stickersini.webp
 
+import kotlin.math.ceil
+
 /** RF-10: un WebP animado no debe pesar más de 500 KB. */
 const val ANIMATED_WEBP_TARGET_SIZE_BYTES = 500_000
 
@@ -10,7 +12,16 @@ const val ANIMATED_WEBP_TARGET_SIZE_BYTES = 500_000
  */
 private const val FIRST_QUALITY = 75
 
-/** Por debajo de esto ya no tiene sentido seguir quitando fotogramas. */
+/**
+ * Piso de fotogramas por segundo bajo el cual la reducción de fotogramas
+ * (ADR-0007) no debe bajar: sin él, contenido adverso podía terminar en 1
+ * fps (3 de 30 fotogramas), técnicamente dentro de RF-10 pero ya no una
+ * animación. Por debajo del piso, lo que se ajusta es la calidad, no el
+ * número de fotogramas.
+ */
+private const val MIN_FRAMES_PER_SECOND = 5
+
+/** Mínimo absoluto para clips tan cortos que el piso de fps daría menos. */
 private const val MIN_FRAMES_AFTER_REDUCTION = 2
 
 /**
@@ -36,10 +47,12 @@ private const val CLOSE_TO_LIMIT_FRACTION = 0.8
  * Codifica una animación WebP, gastando el mínimo trabajo que el contenido
  * de entrada exija (ADR-0006): una sola pasada a calidad fija primero: con
  * contenido representativo, ya cabe y no hace falta nada más. Solo si no
- * cabe se reduce el número de fotogramas (una vez, por estimación directa)
- * y, si tampoco basta, se bisecta la calidad. `minimize_size` se reserva
- * para cuando el resultado ya válido queda cerca del límite de RF-10. Un
- * tope duro de tiempo (RNF-08) acota cuánto puede tardar el caso adverso.
+ * cabe se reduce el número de fotogramas (una vez, por estimación directa,
+ * nunca por debajo del piso de fps de ADR-0007) y, si tampoco basta, se
+ * bisecta la calidad sobre ese número de fotogramas ya fijado.
+ * `minimize_size` se reserva para cuando el resultado ya válido queda
+ * cerca del límite de RF-10. Un tope duro de tiempo (RNF-08) acota cuánto
+ * puede tardar el caso adverso.
  *
  * No decide de dónde salen los fotogramas ni cuántos hay: eso es
  * responsabilidad de quien llame (editor, captura de pantalla), fuera del
@@ -95,10 +108,15 @@ class WebpAnimEncoder(
         // Fase 2: si no cupo, un único ajuste de fotogramas por
         // proporción (no bisección): la relación entre el tamaño obtenido
         // y el límite estima directamente cuántos fotogramas hacen falta.
-        if (bytes.size > targetSizeBytes && currentFrames.size > MIN_FRAMES_AFTER_REDUCTION && stillHaveTime()) {
+        // Nunca baja del piso de fps (ADR-0007): por debajo de él, lo que
+        // se ajusta a continuación es la calidad (fase 3), no fotogramas.
+        val totalDurationMs = currentFrames.sumOf { it.durationMs }
+        val frameFloor = ceil(totalDurationMs / 1000.0 * MIN_FRAMES_PER_SECOND).toInt()
+            .coerceAtLeast(MIN_FRAMES_AFTER_REDUCTION)
+        if (bytes.size > targetSizeBytes && currentFrames.size > frameFloor && stillHaveTime()) {
             val ratio = targetSizeBytes.toDouble() / bytes.size
             val estimatedCount = (currentFrames.size * ratio).toInt()
-                .coerceIn(MIN_FRAMES_AFTER_REDUCTION, currentFrames.size - 1)
+                .coerceIn(frameFloor, currentFrames.size - 1)
             val reduced = FrameTiming.reduceTo(currentFrames.map { it.durationMs }, estimatedCount)
             currentFrames = reduced.map { (originalIndex, duration) ->
                 currentFrames[originalIndex].copy(durationMs = duration)

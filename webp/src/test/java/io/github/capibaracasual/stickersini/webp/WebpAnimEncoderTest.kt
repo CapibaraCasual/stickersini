@@ -9,12 +9,12 @@ import org.junit.Test
 import org.mockito.Mockito.mock
 
 /**
- * Prueba la estrategia de ADR-0006 (una pasada primero, reducir fotogramas
- * por estimación si no basta, bisecar calidad como último recurso,
- * `minimize_size` solo cerca del límite, tope duro de tiempo) con un
- * [SingleShotWebpEncoder] falso, sin tocar la librería nativa. El [Bitmap]
- * de cada [WebpFrame] es un mock: la orquestación nunca lee sus píxeles,
- * solo cuenta fotogramas.
+ * Prueba la estrategia de ADR-0006 y ADR-0007 (una pasada primero, reducir
+ * fotogramas por estimación si no basta —nunca por debajo del piso de fps
+ * de ADR-0007—, bisecar calidad como último recurso, `minimize_size` solo
+ * cerca del límite, tope duro de tiempo) con un [SingleShotWebpEncoder]
+ * falso, sin tocar la librería nativa. El [Bitmap] de cada [WebpFrame] es
+ * un mock: la orquestación nunca lee sus píxeles, solo cuenta fotogramas.
  */
 class WebpAnimEncoderTest {
 
@@ -95,10 +95,11 @@ class WebpAnimEncoderTest {
     fun `si reducir fotogramas no basta, bisecta calidad despues, sin minimizar si no hace falta`() {
         // A calidad 75 el tamaño no baja de forma proporcional al reducir
         // fotogramas (hay un costo fijo de 300_000 que no depende del
-        // número de fotogramas): con 10 fotogramas no cabe (1_200_000), la
-        // reducción por proporción estima 4 fotogramas, que tampoco cabe
-        // (660_000) — recién ahí entra la bisección de calidad, ya sobre
-        // esos 4 fotogramas.
+        // número de fotogramas): con 10 fotogramas (100 ms cada uno, 1 s
+        // total, piso de ADR-0007 = 5) no cabe (1_200_000); la proporción
+        // por sí sola estimaría 4, pero el piso la sube a 5, que tampoco
+        // cabe (750_000) — recién ahí entra la bisección de calidad, ya
+        // sobre esos 5 fotogramas.
         var minimizeSizeCalls = 0
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
@@ -114,11 +115,31 @@ class WebpAnimEncoderTest {
 
         val result = encoder.encode(frames(10))
 
-        assertEquals(4, result.frameCount)
+        assertEquals(5, result.frameCount)
         assertEquals(74, result.quality)
-        assertEquals(78_000, result.bytes.size)
-        // 78_000 es 15.6% del límite: no está "cerca", no debió minimizarse.
+        assertEquals(79_000, result.bytes.size)
+        // 79_000 es 15.8% del límite: no está "cerca", no debió minimizarse.
         assertEquals(0, minimizeSizeCalls)
+    }
+
+    @Test
+    fun `el piso de fps evita que la reduccion de fotogramas baje demasiado, aunque haga falta bajar mucho la calidad`() {
+        // 20 fotogramas de 100 ms (2 s totales): el piso de ADR-0007 a 5
+        // fps es 10 fotogramas. A calidad 75 cada fotograma "cuesta" 1_000_000,
+        // así que la proporción por sí sola estimaría 0 (500_000 / 20_000_000),
+        // muy por debajo del piso: debe clamparse a 10, no a 2.
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
+                val count = candidateFrames.size
+                if (quality == 75) ByteArray(count * 1_000_000) else ByteArray(count * 100 + quality * 100)
+            },
+        )
+
+        val result = encoder.encode(frames(20))
+
+        assertEquals(10, result.frameCount) // el piso, no los 0-2 que daría la proporción sola
+        assertEquals(74, result.quality) // tuvo que bajar mucho la calidad para caber en el piso
+        assertTrue(result.bytes.size <= 500_000)
     }
 
     @Test
@@ -181,7 +202,7 @@ class WebpAnimEncoderTest {
         val result = encoder.encode(frames(10))
 
         assertTrue("el resultado entregado debe cumplir RF-10 igual", result.bytes.size <= 500_000)
-        assertEquals(4, result.frameCount)
+        assertEquals(5, result.frameCount)
         // La convergencia completa de esta bisección necesita 7 intentos en
         // la fase 3 (más 2 de las fases 1 y 2): con el tope de tiempo debió
         // cortar antes.
