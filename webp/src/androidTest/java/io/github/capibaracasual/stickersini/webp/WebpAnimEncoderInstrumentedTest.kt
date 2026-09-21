@@ -68,9 +68,10 @@ class WebpAnimEncoderInstrumentedTest {
             result.bytes.size <= ANIMATED_WEBP_TARGET_SIZE_BYTES,
         )
         assertTrue(
-            "contenido ruidoso a 512x512x10 fotogramas debería forzar una calidad " +
-                "por debajo de la máxima, no ${result.quality}",
-            result.quality < QualitySearch.MAX_QUALITY,
+            "contenido ruidoso a 512x512x10 fotogramas debería necesitar reducir " +
+                "fotogramas o bajar la calidad fija de partida (75), no una sola pasada " +
+                "de ${result.frameCount} fotogramas a calidad ${result.quality}",
+            result.frameCount < 10 || result.quality < 75,
         )
     }
 

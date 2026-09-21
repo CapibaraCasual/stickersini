@@ -1,7 +1,6 @@
 package io.github.capibaracasual.stickersini.webp
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -34,27 +33,28 @@ class FrameTimingTest {
     }
 
     @Test
-    fun `halve combina fotogramas de dos en dos conservando la duracion total`() {
-        val halved = FrameTiming.halve(listOf(100, 200, 300, 400))
-        checkNotNull(halved)
-        assertEquals(listOf(IndexedValue(0, 300), IndexedValue(2, 700)), halved)
-        assertEquals(1000, halved.sumOf { it.value })
+    fun `reduceTo agrupa en bloques parejos conservando la duracion total`() {
+        val durations = List(10) { 100 }
+        val reduced = FrameTiming.reduceTo(durations, targetCount = 3)
+
+        assertEquals(
+            listOf(IndexedValue(0, 400), IndexedValue(4, 300), IndexedValue(7, 300)),
+            reduced,
+        )
+        assertEquals(1000, reduced.sumOf { it.value })
     }
 
     @Test
-    fun `halve con numero impar de fotogramas deja el ultimo solo`() {
-        val halved = FrameTiming.halve(listOf(100, 200, 300))
-        checkNotNull(halved)
-        assertEquals(listOf(IndexedValue(0, 300), IndexedValue(2, 300)), halved)
+    fun `reduceTo no toca la lista si ya tiene targetCount fotogramas o menos`() {
+        val reduced = FrameTiming.reduceTo(listOf(100, 200, 300), targetCount = 5)
+
+        assertEquals(listOf(IndexedValue(0, 100), IndexedValue(1, 200), IndexedValue(2, 300)), reduced)
     }
 
     @Test
-    fun `halve con un solo fotograma no reduce mas`() {
-        assertNull(FrameTiming.halve(listOf(100)))
-    }
+    fun `reduceTo con targetCount 0 o negativo reduce a un solo fotograma`() {
+        val reduced = FrameTiming.reduceTo(listOf(100, 200, 300, 400), targetCount = 0)
 
-    @Test
-    fun `halve con lista vacia no reduce mas`() {
-        assertNull(FrameTiming.halve(emptyList()))
+        assertEquals(listOf(IndexedValue(0, 1000)), reduced)
     }
 }

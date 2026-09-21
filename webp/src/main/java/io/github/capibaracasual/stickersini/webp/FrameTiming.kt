@@ -32,25 +32,28 @@ object FrameTiming {
     }
 
     /**
-     * Combina los fotogramas de dos en dos sumando su duración, para reducir
-     * el número de fotogramas a codificar sin acortar la animación. Cada
-     * elemento del resultado es el índice del fotograma original que
-     * sobrevive junto con su nueva duración (la suya más la del que le
-     * seguía). Devuelve null cuando ya no se puede reducir más: quedaría un
-     * solo fotograma.
+     * Reduce [durationsMs] a como mucho [targetCount] fotogramas, agrupando
+     * en bloques consecutivos de tamaño lo más parejo posible y sumando sus
+     * duraciones bajo el primer fotograma de cada bloque, sin acortar la
+     * animación. Cada elemento del resultado es el índice del fotograma
+     * original que sobrevive junto con su nueva duración. Si [durationsMs]
+     * ya tiene [targetCount] fotogramas o menos, lo devuelve sin tocar.
      */
-    fun halve(durationsMs: List<Int>): List<IndexedValue<Int>>? {
-        if (durationsMs.size < 2) return null
+    fun reduceTo(durationsMs: List<Int>, targetCount: Int): List<IndexedValue<Int>> {
+        if (targetCount >= durationsMs.size) {
+            return durationsMs.mapIndexed { index, duration -> IndexedValue(index, duration) }
+        }
         val result = mutableListOf<IndexedValue<Int>>()
-        var i = 0
-        while (i < durationsMs.size) {
-            val duration = if (i + 1 < durationsMs.size) {
-                durationsMs[i] + durationsMs[i + 1]
-            } else {
-                durationsMs[i]
-            }
-            result += IndexedValue(i, duration)
-            i += 2
+        var index = 0
+        var itemsLeft = durationsMs.size
+        var bucketsLeft = targetCount.coerceAtLeast(1)
+        while (index < durationsMs.size) {
+            val bucketSize = (itemsLeft + bucketsLeft - 1) / bucketsLeft
+            val end = (index + bucketSize).coerceAtMost(durationsMs.size)
+            result += IndexedValue(index, durationsMs.subList(index, end).sum())
+            index = end
+            itemsLeft -= bucketSize
+            bucketsLeft -= 1
         }
         return result
     }

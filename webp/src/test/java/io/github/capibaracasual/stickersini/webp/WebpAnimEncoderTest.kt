@@ -2,16 +2,19 @@ package io.github.capibaracasual.stickersini.webp
 
 import android.graphics.Bitmap
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.Mockito.mock
 
 /**
- * Prueba el bucle de ajuste de [WebpAnimEncoder] (RF-12) con un
- * [SingleShotWebpEncoder] falso que simula tamaños de salida, sin tocar la
- * librería nativa. El [Bitmap] de cada [WebpFrame] es un mock: la
- * orquestación nunca lee sus píxeles, solo cuenta fotogramas.
+ * Prueba la estrategia de ADR-0006 (una pasada primero, reducir fotogramas
+ * por estimación si no basta, bisecar calidad como último recurso,
+ * `minimize_size` solo cerca del límite, tope duro de tiempo) con un
+ * [SingleShotWebpEncoder] falso, sin tocar la librería nativa. El [Bitmap]
+ * de cada [WebpFrame] es un mock: la orquestación nunca lee sus píxeles,
+ * solo cuenta fotogramas.
  */
 class WebpAnimEncoderTest {
 
@@ -19,108 +22,113 @@ class WebpAnimEncoderTest {
         List(count) { WebpFrame(bitmap = mock(Bitmap::class.java), durationMs = durationMs) }
 
     @Test
-    fun `si la maxima calidad ya cabe, hace 1 pasada de busqueda y 1 final`() {
+    fun `si la primera pasada cabe de sobra, no busca ni minimiza`() {
         var calls = 0
         val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { _, quality, _ ->
+            singleShotEncoder = SingleShotWebpEncoder { _, quality, minimizeSize ->
                 calls++
-                ByteArray(if (quality == 100) 1_000 else 999_999)
+                assertEquals(75, quality)
+                assertFalse(minimizeSize)
+                ByteArray(50_000) // 10% del límite de 500_000: no está "cerca"
             },
-            targetSizeBytes = 500_000,
         )
 
-        val result = encoder.encode(frames(3))
+        val result = encoder.encode(frames(30))
 
-        assertEquals(100, result.quality)
-        // 1 intento de búsqueda (quality=100, cabe de inmediato) + 1 pasada
-        // final a esa misma calidad con minimizeSize=true. No 1: la pasada
-        // final es intencional, no un intento de bisección de más.
-        assertEquals(2, calls)
+        assertEquals(1, calls)
+        assertEquals(75, result.quality)
+        assertEquals(30, result.frameCount)
+        assertEquals(50_000, result.bytes.size)
     }
 
     @Test
-    fun `minimizeSize es false durante toda la busqueda y true solo en la pasada final`() {
-        val minimizeSizeByCall = mutableListOf<Boolean>()
+    fun `si el resultado ya valido queda cerca del limite, prueba minimize_size`() {
         val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { _, quality, minimizeSize ->
-                minimizeSizeByCall += minimizeSize
-                ByteArray(quality * 1_000)
+            singleShotEncoder = SingleShotWebpEncoder { _, _, minimizeSize ->
+                if (minimizeSize) ByteArray(420_000) else ByteArray(450_000) // 90% del límite: "cerca"
             },
-            targetSizeBytes = 55_000,
         )
 
-        encoder.encode(frames(3))
+        val result = encoder.encode(frames(5))
 
-        // Todas las pasadas de búsqueda (todas menos la última) van con
-        // minimizeSize=false; la última, la final, va con true.
-        assertTrue(minimizeSizeByCall.size >= 2)
-        assertTrue(
-            "ninguna pasada de búsqueda debería usar minimizeSize=true",
-            minimizeSizeByCall.dropLast(1).none { it },
-        )
-        assertTrue("la pasada final debería usar minimizeSize=true", minimizeSizeByCall.last())
+        assertEquals(420_000, result.bytes.size) // usa el resultado minimizado, más chico
     }
 
     @Test
-    fun `reduce la calidad hasta caber en el limite`() {
-        // tamaño simulado = calidad * 1000; con límite 55_000 la mejor calidad es 55
+    fun `si minimize_size no mejora el resultado, se queda con el de la busqueda`() {
         val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { _, quality, _ -> ByteArray(quality * 1_000) },
-            targetSizeBytes = 55_000,
-        )
-
-        val result = encoder.encode(frames(3))
-
-        assertEquals(55, result.quality)
-        assertEquals(55_000, result.bytes.size)
-    }
-
-    @Test
-    fun `si la pasada final no cupiera, usa el resultado ya validado de la busqueda`() {
-        // minimizeSize=true "falla" a propósito (devuelve más grande que la
-        // búsqueda) para probar la red de seguridad: no debería pasar nunca
-        // en la realidad (minimize_size solo puede achicar o igualar), pero
-        // si pasara, no debe romper el límite de RF-10.
-        val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { _, quality, minimizeSize ->
-                if (minimizeSize) ByteArray(999_999) else ByteArray(quality * 1_000)
+            singleShotEncoder = SingleShotWebpEncoder { _, _, minimizeSize ->
+                // No debería pasar nunca en la realidad (minimize_size solo puede
+                // achicar o igualar), pero si pasara, no debe romper RF-10.
+                if (minimizeSize) ByteArray(999_999) else ByteArray(450_000)
             },
-            targetSizeBytes = 55_000,
         )
 
-        val result = encoder.encode(frames(3))
+        val result = encoder.encode(frames(5))
 
-        assertEquals(55, result.quality)
-        assertTrue(result.bytes.size <= 55_000)
+        assertEquals(450_000, result.bytes.size)
+        assertTrue(result.bytes.size <= 500_000)
     }
 
     @Test
-    fun `si ninguna calidad cabe, reduce fotogramas y reintenta`() {
-        // Con 4 fotogramas nunca cabe (tamaño mínimo 400_000 a calidad 0);
-        // con 2 fotogramas (tras halve) sí cabe incluso a calidad alta.
+    fun `si la calidad fija no basta, reduce fotogramas por proporcion en un solo paso`() {
+        // tamaño simulado = fotogramas x 50_000, sin depender de la calidad
+        // (fases 1 y 2 siempre codifican a 75): con 12 fotogramas no cabe
+        // (600_000), la proporción estima 10 fotogramas (500_000, justo cabe).
         val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { currentFrames, quality, _ ->
-                val perFrame = 50_000 + quality * 1_000
-                ByteArray(perFrame * currentFrames.size)
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
+                assertEquals(75, quality)
+                val base = candidateFrames.size * 50_000
+                if (minimizeSize) ByteArray(base - 5_000) else ByteArray(base)
             },
-            targetSizeBytes = 150_000,
         )
 
-        val result = encoder.encode(frames(4, durationMs = 100))
+        val result = encoder.encode(frames(12))
 
-        assertEquals(2, result.frameCount)
-        assertEquals(listOf(200, 200), result.frameDurationsMs) // se combinaron de dos en dos
+        assertEquals(10, result.frameCount)
+        assertEquals(75, result.quality)
+        // 500_000 (100% del límite) dispara minimize_size, que lo deja en 495_000.
+        assertEquals(495_000, result.bytes.size)
     }
 
     @Test
-    fun `si ni reduciendo fotogramas cabe, falla informando (RF-12)`() {
+    fun `si reducir fotogramas no basta, bisecta calidad despues, sin minimizar si no hace falta`() {
+        // A calidad 75 el tamaño no baja de forma proporcional al reducir
+        // fotogramas (hay un costo fijo de 300_000 que no depende del
+        // número de fotogramas): con 10 fotogramas no cabe (1_200_000), la
+        // reducción por proporción estima 4 fotogramas, que tampoco cabe
+        // (660_000) — recién ahí entra la bisección de calidad, ya sobre
+        // esos 4 fotogramas.
+        var minimizeSizeCalls = 0
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
+                if (minimizeSize) minimizeSizeCalls++
+                val count = candidateFrames.size
+                if (quality == 75) {
+                    ByteArray(count * 90_000 + 300_000)
+                } else {
+                    ByteArray(count * 1_000 + quality * 1_000)
+                }
+            },
+        )
+
+        val result = encoder.encode(frames(10))
+
+        assertEquals(4, result.frameCount)
+        assertEquals(74, result.quality)
+        assertEquals(78_000, result.bytes.size)
+        // 78_000 es 15.6% del límite: no está "cerca", no debió minimizarse.
+        assertEquals(0, minimizeSizeCalls)
+    }
+
+    @Test
+    fun `si ninguna combinacion cabe, falla informando RF-12`() {
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { _, _, _ -> ByteArray(999_999) },
-            targetSizeBytes = 500_000,
         )
 
         assertThrows(WebpEncodeException::class.java) {
-            encoder.encode(frames(4))
+            encoder.encode(frames(5))
         }
     }
 
@@ -135,5 +143,48 @@ class WebpAnimEncoderTest {
         assertThrows(WebpEncodeException::class.java) {
             encoder.encode(frames(2, durationMs = 5)) // por debajo de los 8 ms mínimos
         }
+    }
+
+    @Test
+    fun `si se agota el tope de tiempo sin ningun resultado valido, falla informando RF-12`() {
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { _, _, _ -> ByteArray(999_999) },
+            hardTimeLimitMs = 0,
+        )
+
+        assertThrows(WebpEncodeException::class.java) {
+            encoder.encode(frames(10))
+        }
+    }
+
+    @Test
+    fun `si se agota el tope de tiempo a mitad de la busqueda, entrega el mejor resultado valido encontrado`() {
+        // Mismo escenario que "reducir no basta, bisecta calidad", pero con
+        // 15 ms de latencia simulada por intento y un tope de 70 ms: no
+        // alcanza a converger a la calidad óptima (74), pero sí a devolver
+        // algo válido en vez de fallar o colgarse.
+        var calls = 0
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
+                calls++
+                Thread.sleep(15)
+                val count = candidateFrames.size
+                if (quality == 75) {
+                    ByteArray(count * 90_000 + 300_000)
+                } else {
+                    ByteArray(count * 1_000 + quality * 1_000)
+                }
+            },
+            hardTimeLimitMs = 70,
+        )
+
+        val result = encoder.encode(frames(10))
+
+        assertTrue("el resultado entregado debe cumplir RF-10 igual", result.bytes.size <= 500_000)
+        assertEquals(4, result.frameCount)
+        // La convergencia completa de esta bisección necesita 7 intentos en
+        // la fase 3 (más 2 de las fases 1 y 2): con el tope de tiempo debió
+        // cortar antes.
+        assertTrue("debió cortar antes de agotar la bisección completa (9 intentos)", calls < 9)
     }
 }
