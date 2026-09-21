@@ -104,7 +104,7 @@ enriquecido), soporte a mensajeros distintos de WhatsApp.
 | ID | Requisito |
 |---|---|
 | **RNF-07** | El AAB por ABI debe pesar menos de 15 MB. |
-| **RNF-08** | La conversión de 3 segundos de video a sticker animado debe completarse en menos de 5 segundos en un dispositivo de gama media. |
+| **RNF-08** | La conversión de 3 segundos de contenido representativo (grabaciones de pantalla, video de cámara) debe completarse en menos de 5 segundos en un dispositivo de gama media. Para contenido de alta complejidad visual, la conversión debe terminar en menos de 20 segundos, mostrando progreso, aunque el resultado tenga menos fotogramas. |
 | **RNF-09** | La aplicación no debe requerir más de 200 MB de almacenamiento para datos propios en uso normal. |
 
 ### Licenciamiento

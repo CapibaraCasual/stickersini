@@ -1,201 +1,211 @@
-# ADR-0006: Acotar el costo de tiempo de WebpAnimEncoder frente a RNF-08
+# ADR-0006: Codificar sin buscar cuando el contenido ya cabe
 
-- Estado: Propuesto (no implementado; ver nota al final)
+- Estado: Aceptado
 - Fecha: 2026-09-20
 
 ## Contexto
 
-`QualitySearch` (ver [ADR-0005](0005-libwebp-vendorizado-no-submodulo-ni-binding.md))
-busca por bisección la mayor calidad que quepa en 500 KB, y `WebpAnimEncoder`
-recodifica la animación **entera** en cada intento: no hay una forma barata
-de "probar" una calidad sin pagar el costo completo de codificación.
+La versión anterior de este ADR (ver historial de git) proponía acotar el
+número de iteraciones de `QualitySearch` y separar una fase de búsqueda
+"rápida" de una pasada final "lenta", con `method` y `minimize_size`
+distintos en cada una. Esa propuesta partía de una estimación por proxy
+(Pillow en la máquina de desarrollo, con un factor de extrapolación
+2×–6× sin verificar) y nunca se implementó. Dos rondas de medición real en
+dispositivo (Xiaomi Redmi Note 14, Android 14, arm64-v8a — ver
+`docs/desarrollo/pruebas.md`) la invalidan:
 
-### Cuántas pasadas hace en el peor caso, medido, no estimado
+1. Con el algoritmo de bisección ya arreglado (`minimize_size` solo en la
+   pasada final, `method=4` explícito), una corrida de 30 fotogramas de
+   ruido adverso hizo 14 intentos y cortó a los 5 minutos sin resultado.
+   Las dos codificaciones completas que sí se vieron tardaron **~13
+   segundos cada una** — más del doble del presupuesto de RNF-08 de
+   entonces. El problema no era el número de intentos: era el costo de
+   cada uno.
+2. Un benchmark de una sola codificación por configuración (sin bisección),
+   `method` en `{0, 2, 4, 6}` × contenido adverso/realista a calidad fija
+   75, dio esta tabla:
 
-Simulé la lógica exacta de `QualitySearch.next()` contra las 102
-calidades-umbral posibles (0..100, y "ninguna calidad cabe"). El peor caso
-real es **8 codificaciones completas de la animación** por cada nivel de
-número de fotogramas (ocurre cuando la calidad que realmente cabe es muy
-baja, 0 o 1 — ver `docs/desarrollo/pruebas.md` para el script). Y no
-termina ahí: si esas 8 no bastan, `WebpAnimEncoder.encode()` combina
-fotogramas de dos en dos (`FrameTiming.halve`) y **repite la búsqueda
-completa** en el conjunto reducido. Con un número de fotogramas inicial
-alto, esto puede encadenar varias rondas de hasta 8 codificaciones cada una.
+   | `method` | Contenido | Tamaño (bytes) | Tiempo (ms) |
+   |---|---|---|---|
+   | 0 | adverso | 4 838 184 | 5 178 |
+   | 2 | adverso | 7 716 510 | 10 911 |
+   | 4 | adverso | 4 864 902 | 29 266 |
+   | 6 | adverso | 4 870 268 | 45 768 |
+   | 0 | realista | 59 672 | 1 330 |
+   | 2 | realista | 42 184 | 1 898 |
+   | 4 | realista | 39 150 | 3 942 |
+   | 6 | realista | 37 902 | 31 026 |
 
-### Cuánto cuesta cada pasada, medido por proxy, no en el dispositivo real
+   ("realista": degradado de fondo, zona plana, forma en movimiento y
+   texto — aproxima una grabación de pantalla real. "adverso": ruido
+   independiente por fotograma, el peor caso posible, no un caso típico.)
 
-No hay dispositivo disponible en este entorno (ver la sección "Preparar
-la validación en dispositivo" de la respuesta que acompaña a este ADR), así
-que no hay forma de medir el costo real de una pasada de
-`WebPAnimEncoderAdd` en un teléfono de gama media todavía. En su lugar,
-bench-marqué en la máquina de desarrollo la codificación WebP con Pillow
-(que también usa libwebp, aunque su propia copia vendorizada y sin
-`WebPAnimEncoderOptions.minimize_size`, que es exclusivo del encoder de
-animación) sobre una imagen de 512×512 con contenido ruidoso — el caso
-realista más caro, mucho más parecido a una captura de pantalla o video
-real que a un color plano:
+**El dato que cambia la conclusión: `method=0` + contenido realista da
+59 672 bytes — más de 8× por debajo del límite de 500 KB de RF-10 — en
+1 330 ms, sobre los 5 000 ms de RNF-08.** Con contenido representativo, la
+primera codificación ya cabe. No hace falta bisección de calidad. No hace
+falta `minimize_size`. El problema no era "cuántas veces se codifica": era
+que el diseño anterior codificaba con bisección **siempre**, incluso
+cuando una sola pasada ya bastaba. La estrategia de este ADR es distinta en
+la raíz, no una optimización de la anterior: dejar de buscar por defecto,
+y solo pagar el costo de búsqueda cuando la primera pasada, medida, no
+alcanza.
 
-| calidad | method | ms/fotograma (escritorio) |
-|---|---|---|
-| 100 | 0 (rápido) | 35.3 |
-| 100 | 4 (por defecto de libwebp, el que usa hoy `webp_jni.c`) | 72.2 |
-| 100 | 6 (máximo esfuerzo) | 134.0 |
+### Costo de `minimize_size` a `method=0`, medido
 
-`config.method` nunca se fija en `webp_jni.c`: queda en el valor por
-defecto de `WebPConfigInit`, que es 4 (verificado en
-`third_party/libwebp/src/enc/config_enc.c:37`). Y
-`WebPAnimEncoderOptions.minimize_size` está en 1 desde el primer commit del
-módulo, con este comentario mío: "RF-10 es un límite duro, no un objetivo
-aproximado". El propio header de libwebp lo confirma y además revela que el
-costo es aún mayor de lo que mide esta tabla:
+Antes de decidir cuándo vale la pena pagar `minimize_size`, se midió su
+costo real a `method=0`/calidad 75 (mismo dispositivo), contra las filas
+`minimizeSize=false` de la tabla de arriba:
 
-```c
-// third_party/libwebp/src/webp/mux.h:436
-int minimize_size;    // If true, minimize the output size (slow). Implicitly
-                       // disables key-frame insertion.
-```
+| Contenido | `minimizeSize` | Tamaño (bytes) | Tiempo (ms) |
+|---|---|---|---|
+| adverso | false | 4 838 184 | 5 178 |
+| adverso | true | 4 838 184 | 10 360 |
+| realista | false | 59 672 | 1 330 |
+| realista | true | 59 610 | 2 232 |
 
-`minimize_size` prueba cada fotograma como keyframe **y** como diferencia
-contra el anterior, y se queda con el que pese menos — es decir, un costo
-extra por fotograma que ni siquiera aparece en el benchmark de Pillow
-(que codifica imágenes sueltas, no animaciones). El número real en el
-encoder de animación de este proyecto es más alto que 72.2 ms, no más
-bajo.
+`minimize_size` no redujo el tamaño en absoluto sobre ruido adverso (0
+bytes: con fotogramas sin correlación entre sí, probar cada uno como
+diferencia contra el anterior nunca gana contra codificarlo como keyframe)
+y lo redujo solo 62 bytes (0.1%) sobre contenido realista, pese a que ese
+contenido sí tiene partes estáticas entre fotogramas (el fondo, la
+tarjeta). A cambio, costó 1.68×–2.0× más tiempo en ambos casos. Es una
+opción cara para un beneficio, en estos dos contenidos, casi nulo — la
+base para el umbral de la Decisión.
 
-Traduciendo a un teléfono de gama media con un multiplicador conservador de
-2×-6× sobre la cifra de escritorio (rango típico citado para código con
-carga de CPU/DSP intensiva entre un core de escritorio moderno y un SoC
-móvil de gama media; sin medición real todavía, este rango es una hipótesis
-a confirmar en el dispositivo):
+## Decisión
 
-| Escenario | ms/fotograma estimados en gama media |
-|---|---|
-| Búsqueda actual (`method=4`, `minimize_size=1`, sin acotar) | 144–432+ |
-| Con `method=0` en la fase de búsqueda (propuesta) | 70–212 |
+Cuatro cambios, todos en la misma dirección: no pagar ningún costo que el
+contenido de entrada no exija.
 
-### Por qué esto no cumple RNF-08 tal como está
+1. **`method=0` fijo, siempre.** Ya no hay una fase "rápida" y otra
+   "lenta" con `method` distinto: la tabla de arriba muestra que
+   `method=0` es, en los dos contenidos medidos, el más barato en tiempo y
+   no el peor en tamaño de forma consistente (con ruido adverso ni
+   siquiera hay una relación monótona entre `method` y tamaño — ver
+   `docs/desarrollo/pruebas.md`). `NativeWebpEncoder.encode` (el punto de
+   entrada de 3 argumentos que usa producción) pasa a fijar `method=0` en
+   vez de `4`.
+2. **Una sola pasada a calidad fija (75) primero, sin bisección.** Si el
+   resultado cabe en RF-10, se entrega tal cual. 75 se conserva como punto
+   de partida precisamente porque es la calidad ya medida en la tabla de
+   arriba: cabe de sobra en contenido representativo (59 672 de 500 000
+   bytes), así que no hace falta recalibrarla sin repetir la medición.
+3. **Si no cabe, reducir fotogramas antes que calidad, por estimación
+   directa, no por tanteo.** La proporción entre el tamaño obtenido y el
+   límite (`objetivo / obtenido`) estima directamente cuántos fotogramas
+   hacen falta (`fotogramas_actuales × proporción`, con un piso de 2). Es
+   una sola reducción, no una bisección de fotogramas: el tamaño de un
+   WebP animado sin `minimize_size` escala aproximadamente lineal con el
+   número de fotogramas (cada uno se codifica de forma independiente como
+   keyframe), así que una estimación lineal es razonable sin necesitar
+   varias rondas para converger. Solo si, tras esa única reducción,
+   todavía no cabe, se pasa a bisecar calidad (reutilizando
+   `QualitySearch` sin cambios, sembrada con el resultado ya conocido de
+   la calidad 75 en el conjunto reducido).
+4. **`minimize_size` solo si el resultado ya válido queda cerca del
+   límite — umbral: 80% de RF-10 (400 000 bytes).** Justificación con la
+   medición de la sección anterior: el beneficio medido fue nulo (adverso)
+   o marginal (0.1% en realista) a un costo de 1.7×–2× el tiempo. No es un
+   umbral que capture un beneficio grande — los datos no muestran uno—,
+   es un umbral que evita pagar ese costo en el caso común (contenido que
+   cabe con margen amplio, como el realista de la tabla, a solo 12% del
+   límite) reservándolo para cuando el margen es más estrecho y una
+   reducción, aunque pequeña, tiene más chance de importar. Con `method=0`
+   el costo absoluto de intentarlo es bajo en cualquier caso (2.2 s en
+   realista, incluso 10.4 s en el adverso de 30 fotogramas sin reducir),
+   así que un umbral relativamente generoso (80%, no 99%) no arriesga
+   RNF-08 de forma apreciable incluso si dispara más seguido de lo
+   estrictamente necesario.
+5. **Tope duro de 20 segundos para toda la llamada.** Ver RNF-08
+   reescrito (rehecho junto con este ADR, en `docs/desarrollo/requisitos.md`):
+   distingue contenido representativo (≤5 s) de contenido de alta
+   complejidad visual (≤20 s, con progreso visible, aceptando un resultado
+   con menos fotogramas). El encoder no puede saber de antemano en cuál de
+   los dos casos está: intenta terminar rápido, y si no puede, entrega el
+   mejor resultado válido encontrado hasta el momento en que se cumplan
+   los 20 s, en vez de seguir intentando sin límite. Como ya se estableció
+   en la ronda anterior de este trabajo, una llamada JNI bloqueada no se
+   puede interrumpir de verdad desde Kotlin: el tope se comprueba *entre*
+   codificaciones, no dentro de una. Si la codificación en curso cuando se
+   cumple el tope es en sí misma más larga que el margen restante, esa
+   codificación corre hasta terminar de todas formas — el tope acota
+   cuántas codificaciones más se empiezan, no cuánto puede tardar la
+   última que ya estaba en curso.
 
-RNF-08: "la conversión de 3 segundos de video a sticker animado debe
-completarse en menos de 5 segundos en un dispositivo de gama media." La
-tasa de fotogramas de un sticker no está decidida todavía (es del editor,
-Fase 2, fuera de alcance de esta fase), así que uso dos supuestos
-razonables para ilustrar la magnitud del problema, no como cifra definitiva:
+### Por qué no las opciones de la versión anterior de este ADR
 
-- **30 fotogramas** (3 s a 10 fps).
-- Peor caso actual: 8 codificaciones completas × 30 fotogramas × 144–432
-  ms/fotograma = **34.6–103.7 segundos**. Entre 7× y 21× el presupuesto de
-  RNF-08, y eso sin contar que podría hacer falta más de una ronda de
-  reducción de fotogramas.
-- Incluso **una sola** codificación completa a la calidad final
-  (`method=4`, `minimize_size=1`) de 30 fotogramas de contenido complejo:
-  30 × 144–432 ms = **4.3–13.0 segundos**. En el extremo pesimista del
-  rango, ni una sola pasada cabe en el presupuesto — el problema no es solo
-  cuántas veces se repite la codificación, es cuánto cuesta cada una.
-
-Esto cambia la conclusión respecto a lo que se me pidió evaluar: acotar
-solo el número de iteraciones de la bisección **no basta**. El costo por
-intento, dominado por `minimize_size=1` aplicado a cada intento de la
-búsqueda en vez de solo al resultado final, pesa al menos tanto como el
-número de intentos.
-
-## Opciones consideradas
-
-1. **Límite de iteraciones con degradación aceptable.** Cortar la
-   bisección a un máximo fijo de pasos (propuesto: 4, tras una primera
-   sonda) y aceptar la mejor calidad encontrada hasta ese punto en vez de
-   converger al óptimo exacto. Acota el número de intentos por nivel de
-   fotogramas de 8 a 5 (una sonda + 4 refinamientos). Por sí sola, según la
-   sección anterior, no basta: el costo por intento sigue siendo el mismo.
-
-2. **Primera estimación a partir del tamaño de los bitmaps de entrada.**
-   Se consideró y se descarta como estimador principal: el tamaño crudo
-   (ancho × alto × fotogramas) no predice el tamaño comprimido sin saber
-   nada del contenido — un fotograma de color plano y uno ruidoso del mismo
-   tamaño crudo pueden diferir 50× en bytes comprimidos (se ve en la propia
-   tabla de arriba: color plano a calidad 100 pesa 542 bytes, ruidoso a la
-   misma calidad pesa 291996 bytes). Un heurístico así podría arrancar la
-   búsqueda muy lejos del valor real y no ahorrar nada. En su lugar, uso una
-   sonda real y barata como estimador (ver Decisión): más cara que un
-   cálculo aritmético, pero fiable porque codifica de verdad.
-
-3. **Reducción de fotogramas antes que de calidad.** Antes de gastar
-   ninguna pasada de bisección de calidad, comprobar con una sonda barata
-   si el número de fotogramas actual es viable en absoluto. Si ni la
-   calidad mínima cabe, reducir fotogramas de inmediato en vez de agotar la
-   búsqueda de calidad primero para descubrir al final que no había forma
-   de que cupiera. Ataca el número de *rondas* desperdiciadas, no el costo
-   de cada intento.
-
-4. **Separar la codificación de "búsqueda" de la codificación "final"**
-   (no estaba en las tres opciones planteadas, pero es la que más pesa
-   según la medición): usar `method` bajo (0–2) y `minimize_size=0`
-   durante toda la bisección, y pagar el costo de `method=4` +
-   `minimize_size=1` una sola vez, al final, sobre la calidad ya elegida.
-   El tamaño medido durante la búsqueda con `method` bajo no es idéntico al
-   que daría el ajuste fino final, así que la calidad elegida por la
-   búsqueda rápida se re-valida con una codificación final a los ajustes
-   lentos antes de devolverla; si esa validación final no cupiera (raro,
-   pero posible), se prueba una calidad menos antes de rendirse.
-
-## Decisión (propuesta)
-
-Combinar las cuatro, no eligiendo una sola: se atacan costos distintos y
-no son excluyentes.
-
-1. Antes de cualquier bisección, sondear calidad 0 con los ajustes
-   **rápidos** (`method` bajo, `minimize_size=0`). Si ni así cabe, pasar
-   directamente a `FrameTiming.halve` sin gastar el resto del presupuesto
-   de bisección (opción 3, usando la sonda de la opción 2 en vez de un
-   estimador aritmético).
-2. Si la sonda cabe, bisecar con los ajustes rápidos, acotado a un máximo
-   de 4 refinamientos adicionales (opción 1): 5 intentos rápidos como
-   mucho por nivel de fotogramas, no 8.
-3. Con la calidad ganadora de la búsqueda rápida, una única codificación
-   final con los ajustes lentos actuales (`method=4`, `minimize_size=1`)
-   para producir los bytes que de verdad se entregan (opción 4). Si esa
-   pasada final no cupiera pese a que la búsqueda rápida sí, bajar la
-   calidad en un paso más y reintentar la validación final (acotado
-   también, no un bucle sin límite).
-
-Esto cambia el contrato de `SingleShotWebpEncoder`: pasa a necesitar un
-modo (`búsqueda` vs. `final`) además de `frames`/`quality`, y
-`webp_jni.c` necesita exponer `method` además de `quality`. Es un cambio de
-diseño real, no un ajuste de constantes — por eso este ADR, y por eso no
-está implementado todavía.
+- *Límite de iteraciones de bisección con degradación aceptable*: sigue
+  sin bastar por sí sola — un límite de N intentos sobre un diseño que
+  siempre busca no evita el costo de buscar cuando no hace falta. Se
+  vuelve innecesaria: con la Decisión de este ADR, el caso común no llega
+  a iterar ni una vez.
+- *`method` bajo en la búsqueda, alto en la pasada final*: la tabla de
+  `method` × contenido no respalda que `method` alto valga su costo — en
+  ninguno de los dos contenidos medidos `method=6` dio una mejora de
+  tamaño que compense 6×–9× más tiempo que `method=0`. Se descarta tener
+  dos valores de `method`: uno solo, fijo, es más simple y los datos no
+  piden lo contrario.
 
 ## Consecuencias
 
-- Acota el peor caso a 5 codificaciones rápidas + 1 codificación final por
-  nivel de fotogramas, en vez de 8 codificaciones lentas. Con los números
-  de esta tabla, eso baja el peor caso de un solo nivel de ~35–104 s a
-  aproximadamente 5×30×(70–212 ms) + 30×(144–432 ms) ≈ **14.8–44.8
-  segundos**. Sigue muy por encima de RNF-08 en todo el rango estimado —
-  la mejora es real (entre 2.3× y 2.4×) pero no basta por sí sola para
-  cumplir el presupuesto de 5 segundos sin datos reales del dispositivo.
-- La calidad final entregada puede ser ligeramente peor que el óptimo
-  matemático que encontraría una bisección sin acotar: costo aceptado a
-  cambio de un tiempo predecible, tal como pedía la opción 1.
-- Introduce una codificación "de más" (la validación final) que no existía
-  antes. En el caso común (pocos fotogramas, contenido simple) esto es
-  barato; en el caso adversarial es la pasada más cara de todas, pero solo
-  ocurre una vez.
-- Los números de esta sección son un proxy de escritorio con Pillow más una
-  extrapolación 2×-6× sin verificar, no una medición en un teléfono real.
-  Antes de dar esto por resuelto hace falta instrumentar
-  `WebpAnimEncoderInstrumentedTest` (o un test nuevo) con tiempos reales de
-  pared en el dispositivo del punto 3 de la petición original, y recalibrar
-  el límite de iteraciones y la elección de `method` de búsqueda con esos
-  números, no con esta estimación.
-- Si tras medir en el dispositivo real el peor caso sigue sin caber en el
-  presupuesto de RNF-08, las palancas que quedan (no evaluadas aquí por
-  quedar fuera de lo pedido) son: paralelizar la codificación de
-  fotogramas con `WebPConfig.thread_level`, o replantear qué tasa de
-  fotogramas ofrece el editor para los casos más exigentes.
+- Contenido representativo (la mayoría de las capturas y grabaciones
+  reales, por lo que muestra el caso "realista" medido): una sola
+  codificación, sin bisección, sin `minimize_size`. Del orden de 1.3
+  segundos medidos, muy por debajo de los 5 s de RNF-08.
+- Contenido adversarial (ruido puro, sin redundancia entre fotogramas):
+  sigue sin garantía de caber en 5 s — para eso existe ahora el segundo
+  tramo de RNF-08 (≤20 s, con degradación aceptada) y el tope duro de esta
+  Decisión. No se afirma que 20 s sea suficiente en todos los casos: eso
+  es lo que mide la corrida de validación pendiente (ver más abajo).
+- `SingleShotWebpEncoder` no cambia de forma (`frames`, `quality`,
+  `minimizeSize`): `method` queda fijo dentro de `NativeWebpEncoder`, no
+  se añade como parámetro de la interfaz de producción. Solo
+  `NativeWebpEncoder` expone un `method` configurable, y únicamente para
+  los tests de medición (`WebpEncodeMethodBenchmarkTest`,
+  `WebpMinimizeSizeCostTest`).
+- `FrameTiming.halve` (combinar fotogramas de dos en dos) se reemplaza por
+  `FrameTiming.reduceTo` (reducir a un número de fotogramas estimado
+  directamente): ya no hace falta reducir en pasos de potencia de 2 cuando
+  la estimación da un número exacto de entrada.
+- El umbral del 80% para `minimize_size` (punto 4) se apoya en solo dos
+  mediciones de contenido (una adversa, una representativa sintética): no
+  es una curva de beneficio marginal real. Si en el futuro aparece
+  contenido con más redundancia temporal genuina entre fotogramas (una
+  grabación de pantalla real, no la aproximación sintética de este ADR)
+  donde `minimize_size` sí ahorre una fracción significativa de tamaño,
+  este umbral debería revisarse con esa medición, no mantenerse por
+  inercia.
 
-## Nota sobre el estado de este ADR
+## Medición final, en dispositivo (Redmi Note 14, Android 14, arm64-v8a)
 
-Se escribe como **propuesta**, no como decisión aceptada e implementada:
-la petición que lo origina pide explícitamente no implementar nada nuevo
-todavía. Falta confirmación antes de tocar `WebpAnimEncoder.kt`,
-`QualitySearch.kt`, `SingleShotWebpEncoder.kt`, `NativeWebpEncoder.kt` y
-`webp_jni.c`.
+Implementado en `WebpAnimEncoder.kt`, `FrameTiming.kt`,
+`NativeWebpEncoder.kt`. Corrida completa de
+`WebpAnimEncoderPerformanceTest.estrategiaAdr0006_30fotogramas_ambosContenidos`
+(el orquestador real, no configuraciones sueltas) sobre los dos tipos de
+contenido de 30 fotogramas — detalle en `docs/desarrollo/pruebas.md`,
+sección "Estrategia de ADR-0006, medida en dispositivo":
+
+| Contenido | Codificaciones | Tiempo total | Resultado |
+|---|---|---|---|
+| adverso | 3 | 6 223 ms | quality=75, 3/30 fotogramas, 483 522 bytes |
+| realista | 1 | 1 292 ms | quality=75, 30/30 fotogramas, 59 672 bytes |
+
+Contenido representativo: 1 292 ms contra el presupuesto de 5 000 ms de
+RNF-08 — cumple con margen amplio, una sola pasada, sin bisección ni
+`minimize_size`, tal como predecía la Decisión. Contenido adverso (el peor
+caso posible, no uno típico): 6 223 ms contra el presupuesto de 20 000 ms
+del segundo tramo de RNF-08 reescrito — cumple con margen amplio también,
+sin necesitar el tope duro de tiempo (`outcome=exito` en ambas corridas,
+ninguna lo agotó). El caso adverso se resolvió reduciendo a 3 fotogramas
+(estimado por proporción en un solo paso) más una pasada de
+`minimize_size` que no cambió el tamaño (0 bytes, consistente con la
+medición de la sección anterior) pero tampoco costó caro (796 ms).
+
+Con esta medición, la estrategia queda confirmada para los dos contenidos
+evaluados y este ADR pasa a **Aceptado**. Queda sin observar en este
+dispositivo el comportamiento del tope duro de 20 s ante un caso que
+realmente lo agote (ninguno de los dos contenidos probados llegó ni
+cerca) — no bloquea la aceptación, porque el tope es una red de seguridad
+para ese escenario no cubierto, no el mecanismo que resuelve los casos
+medidos.
