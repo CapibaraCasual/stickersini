@@ -35,26 +35,27 @@ Objetivo: dado un conjunto de bitmaps, producir un WebP animado de 512×512
 que cumpla RF-10 (≤500 KB), RF-12 (ajuste automático) y RF-13 (fotograma
 ≥8 ms, animación ≤10 s). Contexto y decisión en ADR-0005.
 
-Estado al 2026-09-20: `./gradlew :webp:test` (21 tests, lógica de ajuste de
-calidad y fotogramas, incluida la estrategia completa de ADR-0006 y el
-piso de fotogramas de ADR-0007) y
+**Fase 1 cerrada al 2026-09-20** (`v0.2.0-alpha`). `./gradlew :webp:test`
+(23 tests, lógica de ajuste de calidad y fotogramas, incluida la
+estrategia completa de ADR-0006, el piso de fotogramas de ADR-0007 y su
+tope de tiempo real por estimación) y
 `./gradlew :webp:externalNativeBuildDebug` / `:webp:assembleDebug` (compila
 y enlaza contra libwebp para las cuatro ABI: arm64-v8a, armeabi-v7a, x86,
 x86_64) pasan en la máquina de desarrollo.
-Validado en dispositivo real el 2026-09-20 (Redmi Note 14, Android 14):
+Validado en dispositivo real (Redmi Note 14, Android 14):
 `WebpAnimEncoderInstrumentedTest` (correctitud de la codificación real vía
-JNI) pasa entero. Con la estrategia de ADR-0006 y el piso de ADR-0007 ya
-implementados, `WebpAnimEncoderPerformanceTest` **cumple RNF-08 en los dos
-contenidos medidos**: contenido representativo, 1 226 ms (muy por debajo
-de los 5 s); contenido adverso (el peor caso medido, no uno típico),
-19 825 ms de un tope de 20 s — cumple, pero con solo 175 ms de margen (ver
-detalle abajo). ADR-0006 y ADR-0007 están Aceptados. Lo que sigue
-sin observar en este dispositivo es el comportamiento del tope duro ante
-un caso que de verdad lo agote (ninguno de los contenidos probados llegó a
-necesitarlo del todo — el adverso quedó muy cerca, no lo cruzó). El
+JNI) pasa entero. `WebpAnimEncoderPerformanceTest` **cumple RNF-08 en los
+dos contenidos medidos, con margen real**: contenido representativo,
+1 077 ms (muy por debajo de los 5 s); contenido adverso (el peor caso
+medido, no uno típico), 14 411 ms de un tope de 20 s — 5 589 ms de margen,
+no los 175 ms ajustados de la primera medición (ver detalle abajo).
+ADR-0006 y ADR-0007 están Aceptados. Lo que sigue sin observar en este
+dispositivo es el comportamiento del tope duro ante un caso que de verdad
+lo agote — ninguno de los contenidos probados llegó a necesitarlo. El
 historial completo de cómo se llegó hasta acá (la línea base sin arreglar,
-las mediciones de `method`, el defecto de 1 fps y su arreglo) queda abajo,
-fila por fila, sin editar ninguna de las ya escritas.
+las mediciones de `method`, el defecto de 1 fps y su arreglo, el ajuste
+del orden de búsqueda y del tope de tiempo) queda abajo, fila por fila,
+sin editar ninguna de las ya escritas.
 
 | Fecha | Dispositivo | Android | Qué se probó | Resultado |
 |---|---|---|---|---|
@@ -524,6 +525,61 @@ decide que el tiempo total también debe respetarse de forma estricta, una
 palanca disponible (no implementada) es dejar de buscar una calidad mejor
 en cuanto ya hay un resultado válido banqueado y quede poco tiempo, en vez
 de seguir intentando mejorar hasta que el tope corte.
+
+### Tope de tiempo real: estimación previa + dejar de buscar sin margen
+
+La palanca que quedó pendiente en la sección anterior se implementó: dos
+cambios sobre `WebpAnimEncoder`, ambos dentro de lo que ya decidía
+ADR-0007 (sin ADR nuevo).
+
+1. **Estimación previa a cada codificación.** Antes de lanzar cualquier
+   codificación, se compara el tiempo restante contra la duración de la
+   última codificación medida con el mismo número de fotogramas; si no
+   alcanza, no se lanza. Sin dato previo para ese número de fotogramas
+   (la primera vez que se prueba), se permite el intento — no hay con qué
+   estimar. Antes, el tope solo se comprobaba entre codificaciones sin
+   estimar nada, así que una codificación que no iba a alcanzar a
+   terminar se lanzaba igual.
+2. **Dejar de buscar hacia arriba sin margen real.** En el piso de
+   fotogramas, tras confirmar que la calidad mínima cabe, seguir
+   bisecando hacia arriba solo tiene sentido si ese resultado deja
+   margen: el umbral es 50% del límite, elegido con la propia medición de
+   la corrida anterior (calidad 0 a 15 fotogramas ocupó 70% del límite y
+   ninguna calidad superior cupo — los 5 intentos que lo intentaron no
+   encontraron nada y costaron ~10.5 s de los ~21.8 s totales).
+
+**Resultado, mismo dispositivo, mismo contenido adverso:**
+
+| | Antes (sin estimación, sigue buscando siempre) | Después (estimación + corta sin margen) |
+|---|---|---|
+| Codificaciones | 8 | **3** |
+| Tiempo total | 21 825 ms | **14 411 ms** |
+| ¿Cumple RNF-08 (≤20 000 ms)? | No (lo supera por ~1.8 s) | **Sí, con 5 589 ms de margen** |
+| Resultado final | quality=0, 15/30 fotogramas, 348 516 B | mismo: quality=0, 15/30 fotogramas, 348 516 B |
+
+El resultado final no cambió (sigue siendo la mejor calidad alcanzable a
+15 fotogramas para este contenido); lo que cambió es que ya no se gastan
+5 codificaciones más buscando algo mejor que no existe. Traza completa:
+
+```
+intento #1: frameCount=30 quality=75 sizeBytes=4838184 elapsedMs=10033
+intento #2: frameCount=15 quality=75 sizeBytes=2418984 elapsedMs=2458
+intento #3: frameCount=15 quality=0  sizeBytes=348516  elapsedMs=1889  <- 69.7% del límite: sin margen, no sigue buscando
+TOTAL: codificaciones=3 tiempoTotalMs=14411 outcome=exito resultadoQuality=0 resultadoBytes=348516 resultadoFrameCount=15
+```
+
+Contenido realista, sin cambios: 1 codificación, 1 077 ms, quality=75,
+59 672 bytes.
+
+Nuevo test unitario (`nunca lanza una codificacion sin tiempo estimado
+para terminar`) verifica la propiedad de forma directa: registra en qué
+momento arrancó cada codificación simulada y cuánto tardó la anterior con
+el mismo número de fotogramas, y falla si alguna arrancó con menos tiempo
+restante del que esa anterior había tardado.
+
+**Fase 1 cerrada:** el caso adverso (peor caso medido, no uno típico)
+cumple RNF-08 con margen real, no al límite. Etiquetado como
+`v0.2.0-alpha`.
 
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 

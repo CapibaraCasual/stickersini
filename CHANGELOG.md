@@ -7,15 +7,30 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.2.0-alpha] - 2026-09-20
+
+Cierra la Fase 1: el codificador WebP funciona de punta a punta, medido en
+dispositivo real con contenido representativo y adverso.
+
 ### Añadido
 - Módulo `:webp`: libwebp v1.6.0 vendorizado (ADR-0005) y capa JNI propia
   que codifica bitmaps a WebP animado.
-- `WebpAnimEncoder`: ajusta automáticamente calidad y número de fotogramas
-  hasta cumplir el límite de 500 KB (RF-10, RF-12), validando los tiempos de
-  RF-13 antes de codificar.
+- `WebpAnimEncoder`: codifica gastando el mínimo trabajo que el contenido de
+  entrada exija (ADR-0006, ADR-0007) — una sola pasada a calidad fija si el
+  contenido representativo ya cabe; si no, reduce fotogramas por estimación
+  directa sin bajar de un piso de 5 fps, y bisecta calidad como último
+  recurso, probando primero la calidad mínima al llegar al piso y siguiendo
+  hacia arriba solo si deja margen real. `minimize_size` se reserva para
+  cuando el resultado ya válido queda cerca del límite. Cumple RF-10
+  (≤500 KB), RF-12 (ajuste automático) y RF-13 (tiempos de fotograma), con
+  un tope de tiempo que estima la duración de cada codificación antes de
+  lanzarla, según RNF-08.
 
-Pendiente de cerrar la Fase 1: falta correr los tests instrumentados de
-codificación real en un dispositivo (ver `docs/desarrollo/pruebas.md`).
+Validado en dispositivo real (Xiaomi Redmi Note 14, Android 14): contenido
+representativo, ~1.1 s; contenido adverso (ruido puro, el peor caso
+medido), ~14.4 s — ambos dentro de los presupuestos de RNF-08 (≤5 s / ≤20 s
+según complejidad del contenido). Detalle completo de las mediciones en
+`docs/desarrollo/pruebas.md`.
 
 ## [0.1.0-alpha] - 2026-09-20
 
