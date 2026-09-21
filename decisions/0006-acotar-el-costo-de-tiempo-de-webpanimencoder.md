@@ -1,6 +1,6 @@
 # ADR-0006: Codificar sin buscar cuando el contenido ya cabe
 
-- Estado: Aceptado
+- Estado: Aceptado — Superseded parcialmente por [ADR-0007](0007-piso-de-fotogramas-antes-de-bajar-calidad.md) (punto 3 de la Decisión: reducción de fotogramas)
 - Fecha: 2026-09-20
 
 ## Contexto
