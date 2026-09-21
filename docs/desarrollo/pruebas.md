@@ -188,10 +188,18 @@ corrida es conocido de antemano: 8 × 60 s = 8 min en el peor caso.
 
 ```bash
 adb devices
-./gradlew :webp:connectedAndroidTest --tests "*.WebpEncodeMethodBenchmarkTest"
+./gradlew :webp:connectedAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.capibaracasual.stickersini.webp.WebpEncodeMethodBenchmarkTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
 adb logcat -d -s StickersiniMethodBenchmark:I
 adb pull /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini.webp.test/files/webp_benchmark_trace.txt
 ```
+
+(`--tests` es de los tests unitarios de Gradle, no de `connectedAndroidTest`;
+para filtrar una clase instrumentada hay que pasarla como argumento del
+`AndroidJUnitRunner`. `leaveApksInstalledAfterRun=true` es necesario porque
+por defecto Gradle desinstala el APK de test al terminar, y Android borra su
+carpeta de datos —y con ella la traza— junto con la desinstalación.)
 
 Estimación de duración: no hay una medición previa de `method` aislado en
 este teléfono, así que esto es una expectativa razonada, no un dato. La
@@ -208,6 +216,70 @@ caso (la búsqueda puede permitirse `method` bajo durante la bisección y
 uno más alto solo en la pasada final, por ejemplo). Si ni con contenido
 realista y el `method` más rápido se cabe en 5 s, lo que hay que revisar es
 el propio presupuesto de RNF-08, no el algoritmo de búsqueda.
+
+#### Resultado, 2026-09-20 (mismo Redmi Note 14, Android 14, arm64-v8a)
+
+Corrida completa, sin timeouts: `BUILD SUCCESSFUL in 2m 26s`, las 8
+mediciones se completaron dentro del techo de 8 min conocido de antemano.
+Traza completa recuperada con `adb pull` (`webp_benchmark_trace.txt`); no
+hizo falta recurrir a logcat, que de hecho perdió 3 de las 8 líneas
+(`adverso method=0/2/4`) en su búfer circular durante la corrida — la razón
+por la que existe la traza en archivo.
+
+| `method` | Contenido | Tamaño (bytes) | Tiempo (ms) |
+|---|---|---|---|
+| 0 | adverso | 4 838 184 | 5 178 |
+| 2 | adverso | 7 716 510 | 10 911 |
+| 4 | adverso | 4 864 902 | 29 266 |
+| 6 | adverso | 4 870 268 | 45 768 |
+| 0 | realista | 59 672 | 1 330 |
+| 2 | realista | 42 184 | 1 898 |
+| 4 | realista | 39 150 | 3 942 |
+| 6 | realista | 37 902 | 31 026 |
+
+Notas sobre los propios números, no interpretación de diseño:
+- Con contenido realista, tiempo y tamaño se mueven como predice la
+  documentación de libwebp: más `method` → más lento, más chico, con un
+  salto grande de `method=4` a `method=6` (3 942 ms → 31 026 ms) por el
+  costo mucho mayor del modo exhaustivo.
+- Con contenido adverso (ruido independiente por fotograma, sin nada que
+  ninguna heurística de `method` pueda aprovechar) la relación no es
+  monótona: `method=2` produjo el archivo más grande de los cuatro
+  (7 716 510 bytes) y tardó menos que `method=4` o `method=6`. No es un
+  bug de esta medición: es contenido diseñado para ser el peor caso
+  posible, no contenido típico, y a esa calidad fija (75) ninguno de los
+  cuatro se acerca a los 500 KB de RF-10 de todas formas.
+- Nótese la brecha entre los dos contenidos: a `method=4`, adverso tardó
+  29 266 ms contra 3 942 ms de realista — 7.4×. La corrida anterior que dio
+  "~13 s por codificación" usó contenido adverso; con contenido
+  representativo de una grabación de pantalla real, ese número no aplica.
+
+**Qué implica `method=0` + contenido realista frente a RNF-08:** 1 330 ms
+es 3.76× menor que el presupuesto de 5 000 ms — una sola codificación con
+la configuración más barata medida, sobre contenido representativo, cabe
+holgada. Pero esto no resuelve RNF-08 por sí solo, por dos motivos que esta
+medición no cubre a propósito (es un piso de una sola codificación, no una
+medición del flujo completo):
+1. `WebpAnimEncoder.encodeWithQualitySearch` no hace una sola codificación:
+   hace hasta 8 intentos de bisección más 1 pasada final. A 1 330 ms por
+   intento, 8 intentos ya rondan los 10.6 s — más del doble del
+   presupuesto — antes de contar la pasada final.
+2. Esta medición fija `minimizeSize=false` en las 8 configuraciones, la
+   opción más barata a propósito: la pasada final de producción usa
+   `minimizeSize=true`, y su costo con `method=0` no está medido en
+   ningún punto de este documento. Por el comportamiento de
+   `minimize_size` (prueba cada fotograma dos veces, como keyframe y como
+   diferencia), es razonable esperar que sea más cara que 1 330 ms, no
+   igual.
+
+En resumen: `method=0` con contenido realista muestra que el costo mínimo
+de codificar no es, por sí solo, el obstáculo para RNF-08 — hay margen de
+sobra ahí. El obstáculo sigue siendo el número de codificaciones que hace
+la búsqueda actual y el costo de la pasada final con `minimize_size=true`,
+ninguno de los dos medido todavía con `method` bajo. Sin esos dos números
+no se puede afirmar que RNF-08 sea alcanzable ni que no lo sea con la
+arquitectura actual — que es exactamente lo que ADR-0006 tendría que
+decidir, y sigue sin implementarse.
 
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 
