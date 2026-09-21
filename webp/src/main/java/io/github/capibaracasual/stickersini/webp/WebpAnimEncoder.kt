@@ -28,9 +28,11 @@ private const val MIN_FRAMES_AFTER_REDUCTION = 2
  * RNF-08 (contenido de alta complejidad visual): tope dentro del cual esta
  * clase debe entregar el mejor resultado válido que encuentre, aunque no
  * sea óptimo. Una llamada JNI bloqueada no se puede interrumpir de verdad
- * desde Kotlin, así que el tope se comprueba entre codificaciones, no
- * dentro de una: si la que está en curso cuando se cumple el tope es en sí
- * misma larga, corre hasta terminar de todas formas.
+ * desde Kotlin: no alcanza con comprobar el tope solo entre codificaciones,
+ * porque para cuando una codificación termina ya es tarde para no haberla
+ * empezado. Por eso, antes de lanzar cada una, [encode] estima su duración
+ * a partir de la última medida con el mismo número de fotogramas y no la
+ * lanza si el tiempo restante no alcanza.
  */
 private const val HARD_TIME_LIMIT_MS = 20_000L
 
@@ -44,6 +46,19 @@ private const val HARD_TIME_LIMIT_MS = 20_000L
 private const val CLOSE_TO_LIMIT_FRACTION = 0.8
 
 /**
+ * En el piso de fotogramas (ADR-0007), tras asegurar que la calidad mínima
+ * cabe, solo tiene sentido seguir bisecando hacia arriba si ese resultado
+ * deja margen real. Medido en dispositivo: calidad 0 a 15 fotogramas ocupó
+ * el 70% del límite (348 516 de 500 000 bytes) y ninguna calidad superior
+ * cupo — los intentos que lo intentaron (5 codificaciones más) no
+ * encontraron nada mejor. No hay medición de dónde exactamente deja de
+ * valer la pena entre 50% y 70%, así que se elige 50%, por debajo del
+ * único dato medido, como margen conservador en vez de arriesgar seguir
+ * gastando tiempo cerca del punto ya confirmado inútil.
+ */
+private const val UPWARD_SEARCH_MAX_OCCUPANCY_FRACTION = 0.5
+
+/**
  * Codifica una animación WebP, gastando el mínimo trabajo que el contenido
  * de entrada exija (ADR-0006): una sola pasada a calidad fija primero: con
  * contenido representativo, ya cabe y no hace falta nada más. Solo si no
@@ -51,10 +66,12 @@ private const val CLOSE_TO_LIMIT_FRACTION = 0.8
  * nunca por debajo del piso de fps de ADR-0007) y, si tampoco basta, se
  * bisecta la calidad sobre ese número de fotogramas ya fijado — desde la
  * calidad mínima primero si ya se está en el piso (ver el KDoc de
- * [QualitySearch]), desde una calidad alta en cualquier otro caso.
+ * [QualitySearch]), siguiendo hacia arriba solo si esa calidad mínima deja
+ * margen real, desde una calidad alta en cualquier otro caso.
  * `minimize_size` se reserva para cuando el resultado ya válido queda
  * cerca del límite de RF-10. Un tope duro de tiempo (RNF-08) acota cuánto
- * puede tardar el caso adverso.
+ * puede tardar el caso adverso, estimando la duración de cada codificación
+ * antes de lanzarla en vez de solo comprobar el reloj después.
  *
  * No decide de dónde salen los fotogramas ni cuántos hay: eso es
  * responsabilidad de quien llame (editor, captura de pantalla), fuera del
@@ -75,8 +92,8 @@ class WebpAnimEncoder(
 
     /**
      * @throws WebpEncodeException si [frames] no cumple RF-13, o si no se
-     * encontró ningún resultado dentro de [targetSizeBytes] antes de que se
-     * cumpliera [hardTimeLimitMs] (RF-12).
+     * encontró ningún resultado dentro de [targetSizeBytes] antes de que el
+     * tiempo restante dejara de alcanzar para otra codificación (RF-12).
      */
     fun encode(frames: List<WebpFrame>): WebpEncodeResult {
         if (frames.isEmpty()) {
@@ -89,10 +106,28 @@ class WebpAnimEncoder(
         var bestQuality: Int? = null
         var bestFrames: List<WebpFrame>? = null
 
-        fun stillHaveTime() = System.nanoTime() < deadlineNanos
+        // Última duración medida (ms) por número de fotogramas: el mejor
+        // estimador disponible para la próxima codificación con ese mismo
+        // número, sin necesitar codificar de más solo para medir.
+        val lastDurationMsByFrameCount = mutableMapOf<Int, Long>()
+
+        fun remainingMs() = (deadlineNanos - System.nanoTime()) / 1_000_000L
+
+        // Sin una duración medida para este número de fotogramas todavía,
+        // no hay con qué estimar: se permite el intento (es, como mucho,
+        // el primero de ese tamaño). Con una duración medida, no se lanza
+        // si el tiempo restante no alcanza para ella.
+        fun estimatedTimeAllows(frameCount: Int): Boolean {
+            val remaining = remainingMs()
+            if (remaining <= 0) return false
+            val lastDuration = lastDurationMsByFrameCount[frameCount] ?: return true
+            return remaining >= lastDuration
+        }
 
         fun attempt(candidateFrames: List<WebpFrame>, quality: Int): ByteArray {
+            val start = System.nanoTime()
             val bytes = singleShotEncoder.encode(candidateFrames, quality, minimizeSize = false)
+            lastDurationMsByFrameCount[candidateFrames.size] = (System.nanoTime() - start) / 1_000_000L
             if (bytes.size <= targetSizeBytes) {
                 bestBytes = bytes
                 bestQuality = quality
@@ -115,15 +150,17 @@ class WebpAnimEncoder(
         val totalDurationMs = currentFrames.sumOf { it.durationMs }
         val frameFloor = ceil(totalDurationMs / 1000.0 * MIN_FRAMES_PER_SECOND).toInt()
             .coerceAtLeast(MIN_FRAMES_AFTER_REDUCTION)
-        if (bytes.size > targetSizeBytes && currentFrames.size > frameFloor && stillHaveTime()) {
+        if (bytes.size > targetSizeBytes && currentFrames.size > frameFloor) {
             val ratio = targetSizeBytes.toDouble() / bytes.size
             val estimatedCount = (currentFrames.size * ratio).toInt()
                 .coerceIn(frameFloor, currentFrames.size - 1)
-            val reduced = FrameTiming.reduceTo(currentFrames.map { it.durationMs }, estimatedCount)
-            currentFrames = reduced.map { (originalIndex, duration) ->
-                currentFrames[originalIndex].copy(durationMs = duration)
+            if (estimatedTimeAllows(estimatedCount)) {
+                val reduced = FrameTiming.reduceTo(currentFrames.map { it.durationMs }, estimatedCount)
+                currentFrames = reduced.map { (originalIndex, duration) ->
+                    currentFrames[originalIndex].copy(durationMs = duration)
+                }
+                bytes = attempt(currentFrames, FIRST_QUALITY)
             }
-            bytes = attempt(currentFrames, FIRST_QUALITY)
         }
 
         // Fase 3: solo si ni la calidad fija ni la reducción de fotogramas
@@ -132,11 +169,31 @@ class WebpAnimEncoder(
         if (bytes.size > targetSizeBytes) {
             val search = QualitySearch(targetSizeBytes)
             val nextFromTop = search.next(FIRST_QUALITY, bytes.size)
-            // En el piso de fotogramas de ADR-0007, probar la calidad
-            // mínima primero en vez del punto medio habitual: ver el KDoc
-            // de QualitySearch para el razonamiento completo.
-            var quality: Int? = if (currentFrames.size <= frameFloor) QualitySearch.MIN_QUALITY else nextFromTop
-            while (quality != null && stillHaveTime()) {
+            val atFloor = currentFrames.size <= frameFloor
+
+            // En el piso de fotogramas, probar la calidad mínima primero
+            // en vez del punto medio habitual: ver el KDoc de
+            // QualitySearch para el razonamiento completo.
+            var quality: Int? = if (atFloor) QualitySearch.MIN_QUALITY else nextFromTop
+
+            if (atFloor) {
+                quality = if (estimatedTimeAllows(currentFrames.size)) {
+                    bytes = attempt(currentFrames, QualitySearch.MIN_QUALITY)
+                    val fitsWithHeadroom = bytes.size <= targetSizeBytes * UPWARD_SEARCH_MAX_OCCUPANCY_FRACTION
+                    val next = search.next(QualitySearch.MIN_QUALITY, bytes.size)
+                    // Si la calidad mínima ya cupo pero sin margen real,
+                    // no vale la pena seguir bisecando hacia arriba (ver
+                    // UPWARD_SEARCH_MAX_OCCUPANCY_FRACTION): se corta acá
+                    // aunque el propio QualitySearch sugiera seguir. Si no
+                    // cupo, `next` ya es null por sí solo (no hay
+                    // solución a este número de fotogramas).
+                    if (bytes.size <= targetSizeBytes && !fitsWithHeadroom) null else next
+                } else {
+                    null
+                }
+            }
+
+            while (quality != null && estimatedTimeAllows(currentFrames.size)) {
                 bytes = attempt(currentFrames, quality)
                 quality = search.next(quality, bytes.size)
             }
@@ -154,7 +211,7 @@ class WebpAnimEncoder(
         // del límite (ADR-0006): es la única pasada que puede pagar su
         // costo extra sin desviarse de RNF-08 cuando no hace falta.
         val closeToLimit = finalBytes.size >= targetSizeBytes * closeToLimitFraction
-        val bytesToReturn = if (closeToLimit && stillHaveTime()) {
+        val bytesToReturn = if (closeToLimit && estimatedTimeAllows(finalFrames.size)) {
             val minimized = singleShotEncoder.encode(finalFrames, finalQuality, minimizeSize = true)
             if (minimized.size <= targetSizeBytes) minimized else finalBytes
         } else {

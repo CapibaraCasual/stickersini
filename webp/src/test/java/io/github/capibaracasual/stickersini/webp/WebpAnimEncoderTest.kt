@@ -182,11 +182,14 @@ class WebpAnimEncoderTest {
     }
 
     @Test
-    fun `si se agota el tope de tiempo a mitad de la busqueda, entrega el mejor resultado valido encontrado`() {
+    fun `si el tiempo estimado no alcanza para otra codificacion, entrega el mejor resultado valido encontrado`() {
         // Mismo escenario que "reducir no basta, bisecta calidad", pero con
         // 15 ms de latencia simulada por intento y un tope de 70 ms: no
-        // alcanza a converger a la calidad óptima (74), pero sí a devolver
-        // algo válido en vez de fallar o colgarse.
+        // alcanza para converger a la calidad óptima (74), pero sí para
+        // devolver algo válido en vez de fallar o colgarse. Con la
+        // estimación de duración por número de fotogramas, el corte ahora
+        // es proactivo (no se lanza la codificación que no iba a alcanzar
+        // a terminar), no solo reactivo como antes de este cambio.
         var calls = 0
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
@@ -205,12 +208,9 @@ class WebpAnimEncoderTest {
         val result = encoder.encode(frames(10))
 
         assertTrue("el resultado entregado debe cumplir RF-10 igual", result.bytes.size <= 500_000)
-        assertEquals(5, result.frameCount)
-        // La convergencia completa de esta bisección necesita 8 intentos en
-        // la fase 3 (empieza en 0, no en 37: un intento más que antes de
-        // ADR-0007) más 2 de las fases 1 y 2: con el tope de tiempo debió
-        // cortar antes de los 10.
-        assertTrue("debió cortar antes de agotar la bisección completa (10 intentos)", calls < 10)
+        assertEquals(5, result.frameCount) // el piso, fijado en la fase 2 antes de que el tiempo apriete
+        assertTrue("no debió alcanzar a converger a la calidad óptima (74) con tan poco tiempo", result.quality < 74)
+        assertTrue("debió cortar bastante antes de agotar la bisección completa", calls < 8)
     }
 
     @Test
@@ -252,5 +252,59 @@ class WebpAnimEncoderTest {
         // que el tope de 40 ms permite: confirma que sí se cortó antes de
         // converger, no que coincidió con la respuesta por casualidad.
         assertTrue("debió cortar antes de terminar de bisecar", calls < 9)
+    }
+
+    @Test
+    fun `nunca lanza una codificacion sin tiempo estimado para terminar`() {
+        // 15 fotogramas ya en el piso (200 ms x 15 = 3 s), con una
+        // duración simulada uniforme por intento: permite reconstruir,
+        // después de la corrida, cuánto tiempo quedaba disponible cuando
+        // arrancó cada codificación y compararlo contra lo que tardó la
+        // anterior con el mismo número de fotogramas — exactamente el
+        // estimador que usa WebpAnimEncoder. Ninguna, salvo la primera de
+        // un número de fotogramas nuevo (sin historial todavía), debería
+        // haber arrancado con menos tiempo restante del que la anterior
+        // tardó.
+        data class Call(val frameCount: Int, val startElapsedMs: Long, val durationMs: Long)
+
+        val calls = mutableListOf<Call>()
+        val encoderStart = System.nanoTime()
+        val hardTimeLimitMs = 90L
+
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
+                val startElapsedMs = (System.nanoTime() - encoderStart) / 1_000_000
+                val callStart = System.nanoTime()
+                Thread.sleep(20)
+                val durationMs = (System.nanoTime() - callStart) / 1_000_000
+                calls += Call(candidateFrames.size, startElapsedMs, durationMs)
+
+                val count = candidateFrames.size
+                when (quality) {
+                    75 -> ByteArray(count * 100_000)
+                    0 -> ByteArray(count * 6_000)
+                    else -> ByteArray(999_999)
+                }
+            },
+            hardTimeLimitMs = hardTimeLimitMs,
+        )
+
+        encoder.encode(frames(15, durationMs = 200))
+
+        assertTrue("debería haber al menos una codificación registrada", calls.isNotEmpty())
+        val lastDurationByFrameCount = mutableMapOf<Int, Long>()
+        for (call in calls) {
+            val previousDuration = lastDurationByFrameCount[call.frameCount]
+            if (previousDuration != null) {
+                val remainingAtStart = hardTimeLimitMs - call.startElapsedMs
+                assertTrue(
+                    "se lanzó una codificación de ${call.frameCount} fotogramas con " +
+                        "${remainingAtStart}ms restantes, pero la anterior con ese mismo " +
+                        "número de fotogramas había tardado ${previousDuration}ms",
+                    remainingAtStart >= previousDuration,
+                )
+            }
+            lastDurationByFrameCount[call.frameCount] = call.durationMs
+        }
     }
 }
