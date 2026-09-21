@@ -10,10 +10,19 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
         System.loadLibrary("stickersini_webp")
     }
 
-    override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray {
+    /** method=4: punto medio documentado por libwebp, el único que usa producción. */
+    override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray =
+        encode(frames, quality, minimizeSize, method = 4)
+
+    /**
+     * Con `method` configurable (0=rápido .. 6=más lento y mejor). Solo para
+     * medir su costo real (ver WebpEncodeMethodBenchmarkTest); producción
+     * siempre pasa por el [encode] de 3 argumentos, que fija method=4.
+     */
+    fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean, method: Int): ByteArray {
         val bitmaps = Array(frames.size) { frames[it].bitmap }
         val durationsMs = IntArray(frames.size) { frames[it].durationMs }
-        return nativeEncode(bitmaps, durationsMs, quality, minimizeSize)
+        return nativeEncode(bitmaps, durationsMs, quality, minimizeSize, method)
     }
 
     @JvmStatic
@@ -22,5 +31,6 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
         durationsMs: IntArray,
         quality: Int,
         minimizeSize: Boolean,
+        method: Int,
     ): ByteArray
 }

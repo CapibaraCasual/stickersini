@@ -22,7 +22,7 @@ static void throwEncodeException(JNIEnv *env, const char *message) {
 JNIEXPORT jbyteArray JNICALL
 Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
         JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jint quality,
-        jboolean minimizeSize) {
+        jboolean minimizeSize, jint method) {
     (void) clazz;
 
     jsize frameCount = (*env)->GetArrayLength(env, bitmaps);
@@ -132,11 +132,16 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
                         config.quality = (float) quality;
                         // Antes se dejaba en el valor por defecto de
                         // WebPConfigInit (4) sin decirlo en ningún lado.
-                        // Mismo valor, ahora explícito: 4 es el punto medio
+                        // Ahora lo decide quien llama: el camino de
+                        // producción (NativeWebpEncoder.encode de 3
+                        // argumentos) sigue pasando 4 explícito, punto medio
                         // documentado por libwebp (0=rápido, 6=más lento y
-                        // mejor), y cambiar el valor en sí es una decisión
-                        // de diseño aparte (ver ADR-0006), no este arreglo.
-                        config.method = 4;
+                        // mejor). El parámetro existe para poder medir el
+                        // costo real de cada valor (ver
+                        // WebpEncodeMethodBenchmarkTest); adoptar un valor
+                        // distinto en producción es una decisión de diseño
+                        // aparte (ver ADR-0006), no este arreglo.
+                        config.method = method;
                         if (!WebPValidateConfig(&config)) {
                             throwEncodeException(env, "Configuración de codificación inválida");
                             ok = 0;
