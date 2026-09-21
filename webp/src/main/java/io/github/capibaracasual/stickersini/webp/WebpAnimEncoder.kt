@@ -49,7 +49,9 @@ private const val CLOSE_TO_LIMIT_FRACTION = 0.8
  * contenido representativo, ya cabe y no hace falta nada más. Solo si no
  * cabe se reduce el número de fotogramas (una vez, por estimación directa,
  * nunca por debajo del piso de fps de ADR-0007) y, si tampoco basta, se
- * bisecta la calidad sobre ese número de fotogramas ya fijado.
+ * bisecta la calidad sobre ese número de fotogramas ya fijado — desde la
+ * calidad mínima primero si ya se está en el piso (ver el KDoc de
+ * [QualitySearch]), desde una calidad alta en cualquier otro caso.
  * `minimize_size` se reserva para cuando el resultado ya válido queda
  * cerca del límite de RF-10. Un tope duro de tiempo (RNF-08) acota cuánto
  * puede tardar el caso adverso.
@@ -129,7 +131,11 @@ class WebpAnimEncoder(
         // decidido en la fase 2 (o el original, si no hubo fase 2).
         if (bytes.size > targetSizeBytes) {
             val search = QualitySearch(targetSizeBytes)
-            var quality = search.next(FIRST_QUALITY, bytes.size)
+            val nextFromTop = search.next(FIRST_QUALITY, bytes.size)
+            // En el piso de fotogramas de ADR-0007, probar la calidad
+            // mínima primero en vez del punto medio habitual: ver el KDoc
+            // de QualitySearch para el razonamiento completo.
+            var quality: Int? = if (currentFrames.size <= frameFloor) QualitySearch.MIN_QUALITY else nextFromTop
             while (quality != null && stillHaveTime()) {
                 bytes = attempt(currentFrames, quality)
                 quality = search.next(quality, bytes.size)
