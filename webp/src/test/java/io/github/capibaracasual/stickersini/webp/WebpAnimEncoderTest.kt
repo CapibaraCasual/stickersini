@@ -99,7 +99,10 @@ class WebpAnimEncoderTest {
         // total, piso de ADR-0007 = 5) no cabe (1_200_000); la proporción
         // por sí sola estimaría 4, pero el piso la sube a 5, que tampoco
         // cabe (750_000) — recién ahí entra la bisección de calidad, ya
-        // sobre esos 5 fotogramas.
+        // sobre esos 5 fotogramas. Al estar ya en el piso, prueba
+        // quality=0 primero (ver KDoc de QualitySearch); en este fake
+        // todas las calidades caben, así que igual converge a 74, con un
+        // intento más que si hubiera empezado por el medio.
         var minimizeSizeCalls = 0
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
@@ -203,9 +206,51 @@ class WebpAnimEncoderTest {
 
         assertTrue("el resultado entregado debe cumplir RF-10 igual", result.bytes.size <= 500_000)
         assertEquals(5, result.frameCount)
-        // La convergencia completa de esta bisección necesita 7 intentos en
-        // la fase 3 (más 2 de las fases 1 y 2): con el tope de tiempo debió
-        // cortar antes.
-        assertTrue("debió cortar antes de agotar la bisección completa (9 intentos)", calls < 9)
+        // La convergencia completa de esta bisección necesita 8 intentos en
+        // la fase 3 (empieza en 0, no en 37: un intento más que antes de
+        // ADR-0007) más 2 de las fases 1 y 2: con el tope de tiempo debió
+        // cortar antes de los 10.
+        assertTrue("debió cortar antes de agotar la bisección completa (10 intentos)", calls < 10)
+    }
+
+    @Test
+    fun `en el piso de fps, si solo la calidad minima cabe, un dispositivo lento igual entrega un resultado valido`() {
+        // El caso real que motivó este cambio (ver ADR-0007, corrida en
+        // dispositivo): a 15 fotogramas (piso de 5 fps para 3 s), de
+        // ruido adverso, SOLO quality=0 cabía — bisecar desde una calidad
+        // alta encontraba eso como último intento, no como primero. Con
+        // latencia simulada y un tope de tiempo que solo alcanza para 1-2
+        // intentos de la fase 3 (como en un dispositivo más lento que el
+        // medido), el orden importa: si el primer intento probado fuera
+        // una calidad alta (el comportamiento antes de este cambio), el
+        // tope podría cumplirse sin haber llegado nunca a probar 0, y
+        // quien usa la app se quedaría sin sticker (RF-12). Con quality=0
+        // primero, ya hay un resultado válido garantizado tras el primer
+        // intento de la fase 3, sin importar cuánto tiempo quede después.
+        var calls = 0
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
+                calls++
+                Thread.sleep(15)
+                val count = candidateFrames.size
+                when (quality) {
+                    75 -> ByteArray(count * 100_000) // fase 1: no cabe
+                    0 -> ByteArray(count * 6_000) // única calidad que cabe
+                    else -> ByteArray(999_999) // cualquier otra calidad: tampoco cabe
+                }
+            },
+            hardTimeLimitMs = 40, // alcanza para ~2 intentos de fase 3, no para bisecar entero
+        )
+
+        // 15 fotogramas de 200 ms = 3 s: ya está en el piso de ADR-0007 (15).
+        val result = encoder.encode(frames(15, durationMs = 200))
+
+        assertEquals(0, result.quality)
+        assertTrue("el resultado entregado debe cumplir RF-10", result.bytes.size <= 500_000)
+        // Con 7 valores más por explorar entre 1 y 74 (todos fallan en este
+        // fake), la bisección completa necesitaría más intentos que los
+        // que el tope de 40 ms permite: confirma que sí se cortó antes de
+        // converger, no que coincidió con la respuesta por casualidad.
+        assertTrue("debió cortar antes de terminar de bisecar", calls < 9)
     }
 }
