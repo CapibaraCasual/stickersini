@@ -10,10 +10,10 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
         System.loadLibrary("stickersini_webp")
     }
 
-    override fun encode(frames: List<WebpFrame>, quality: Int): ByteArray {
+    override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray {
         val bitmaps = Array(frames.size) { frames[it].bitmap }
         val durationsMs = IntArray(frames.size) { frames[it].durationMs }
-        return nativeEncode(bitmaps, durationsMs, quality)
+        return nativeEncode(bitmaps, durationsMs, quality, minimizeSize)
     }
 
     @JvmStatic
@@ -21,5 +21,6 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
         bitmaps: Array<android.graphics.Bitmap>,
         durationsMs: IntArray,
         quality: Int,
+        minimizeSize: Boolean,
     ): ByteArray
 }

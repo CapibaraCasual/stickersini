@@ -7,6 +7,14 @@ package io.github.capibaracasual.stickersini.webp
  * lógica de ajuste con JUnit normal, sin cargar la librería nativa.
  */
 fun interface SingleShotWebpEncoder {
-    /** @throws WebpEncodeException si la codificación nativa falla. */
-    fun encode(frames: List<WebpFrame>, quality: Int): ByteArray
+    /**
+     * [minimizeSize] controla `WebPAnimEncoderOptions.minimize_size`: más
+     * lento, prueba cada fotograma como keyframe y como diferencia contra
+     * el anterior. [WebpAnimEncoder] lo deja en `false` durante la búsqueda
+     * de calidad y en `true` solo en la pasada final — quien implemente
+     * esta interfaz no decide eso, solo lo respeta.
+     *
+     * @throws WebpEncodeException si la codificación nativa falla.
+     */
+    fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray
 }

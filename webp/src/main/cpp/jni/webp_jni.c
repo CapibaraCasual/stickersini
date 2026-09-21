@@ -21,7 +21,8 @@ static void throwEncodeException(JNIEnv *env, const char *message) {
 
 JNIEXPORT jbyteArray JNICALL
 Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
-        JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jint quality) {
+        JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jint quality,
+        jboolean minimizeSize) {
     (void) clazz;
 
     jsize frameCount = (*env)->GetArrayLength(env, bitmaps);
@@ -61,9 +62,16 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
         throwEncodeException(env, "No se pudo inicializar WebPAnimEncoderOptions");
         return NULL;
     }
-    // Prioriza tamaño de archivo sobre velocidad de codificación: RF-10 es
-    // un límite duro, no un objetivo aproximado.
-    encOptions.minimize_size = 1;
+    // minimize_size prueba cada fotograma como keyframe y como diferencia
+    // contra el anterior y se queda con el más pequeño: más lento (el
+    // propio header de libwebp lo marca "(slow)"). Antes se dejaba en 1
+    // siempre, incluida cada pasada de la búsqueda de calidad en
+    // WebpAnimEncoder — un descuido, no una decisión: multiplicaba el costo
+    // lento por cada intento de la bisección en vez de pagarlo una sola vez
+    // en el resultado final. Ahora lo decide quien llama (WebpAnimEncoder
+    // usa minimizeSize=false durante la búsqueda y minimizeSize=true solo
+    // en la pasada final). Ver ADR-0006 y docs/desarrollo/pruebas.md.
+    encOptions.minimize_size = minimizeSize ? 1 : 0;
 
     WebPAnimEncoder *encoder = WebPAnimEncoderNew(
             (int) canonicalInfo.width, (int) canonicalInfo.height, &encOptions);
@@ -122,6 +130,13 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
                     } else {
                         config.lossless = 0;
                         config.quality = (float) quality;
+                        // Antes se dejaba en el valor por defecto de
+                        // WebPConfigInit (4) sin decirlo en ningún lado.
+                        // Mismo valor, ahora explícito: 4 es el punto medio
+                        // documentado por libwebp (0=rápido, 6=más lento y
+                        // mejor), y cambiar el valor en sí es una decisión
+                        // de diseño aparte (ver ADR-0006), no este arreglo.
+                        config.method = 4;
                         if (!WebPValidateConfig(&config)) {
                             throwEncodeException(env, "Configuración de codificación inválida");
                             ok = 0;

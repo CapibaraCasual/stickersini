@@ -53,19 +53,34 @@ class WebpAnimEncoder(
     private fun encodeWithQualitySearch(frames: List<WebpFrame>): WebpEncodeResult? {
         val search = QualitySearch(targetSizeBytes)
         var quality: Int? = search.firstQuality()
-        var bestBytes: ByteArray? = null
+        var bestSearchBytes: ByteArray? = null
 
+        // minimizeSize=false: la búsqueda solo necesita saber si una
+        // calidad cabe o no, no el archivo más pequeño posible a esa
+        // calidad. Antes se pagaba el costo lento de minimize_size en cada
+        // intento de la bisección — un descuido corregido aparte de
+        // cualquier cambio al propio algoritmo de búsqueda (ver ADR-0006).
         while (quality != null) {
-            val bytes = singleShotEncoder.encode(frames, quality)
+            val bytes = singleShotEncoder.encode(frames, quality, minimizeSize = false)
             if (bytes.size <= targetSizeBytes) {
-                bestBytes = bytes
+                bestSearchBytes = bytes
             }
             quality = search.next(quality, bytes.size)
         }
 
         val finalQuality = search.bestFittingQuality() ?: return null
+
+        // Una sola pasada final con minimizeSize=true, ya sobre la calidad
+        // ganadora: nunca puede producir un archivo más grande que la
+        // pasada de búsqueda a la misma calidad (prueba keyframe y
+        // diferencia, se queda con el más chico), así que sigue cabiendo.
+        // Red de seguridad por si acaso: si no cupiera, usar el resultado
+        // de búsqueda ya validado en vez de fallar.
+        val finalBytes = singleShotEncoder.encode(frames, finalQuality, minimizeSize = true)
+        val bytes = if (finalBytes.size <= targetSizeBytes) finalBytes else bestSearchBytes!!
+
         return WebpEncodeResult(
-            bytes = bestBytes!!,
+            bytes = bytes,
             quality = finalQuality,
             frameCount = frames.size,
             frameDurationsMs = frames.map { it.durationMs },
