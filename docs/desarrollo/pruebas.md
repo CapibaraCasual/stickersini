@@ -87,9 +87,19 @@ adb shell getprop ro.product.cpu.abi   # informativo: ya se compilan las 4 ABI, 
 ./gradlew :webp:connectedAndroidTest
 ```
 
-Este comando corre las tres clases de test instrumentado del módulo:
-`WebpAnimEncoderInstrumentedTest` (correctitud), `WebpAnimEncoderPerformanceTest`
-(línea base de rendimiento) y cualquier otra que se añada después.
+Este comando corre las cinco clases de test instrumentado del módulo:
+`WebpAnimEncoderInstrumentedTest` (correctitud),
+`WebpAnimEncoderPerformanceTest` (la estrategia completa de ADR-0006, de
+punta a punta, sobre los dos tipos de contenido),
+`WebpEncodeMethodBenchmarkTest` y `WebpMinimizeSizeCostTest` (mediciones
+puntuales sin bisección, ya corridas — ver más abajo, no hace falta
+repetirlas salvo que cambie el código nativo) y cualquier otra que se
+añada después. Para correr solo una o dos clases (evitando repetir el
+benchmark de 2–3 min si no hace falta), usar
+`-Pandroid.testInstrumentationRunnerArguments.class=` con el nombre
+completo, separando varias con coma (ver comandos en las secciones de
+cada test más abajo); `--tests` no funciona con `connectedAndroidTest`,
+solo con tests unitarios.
 
 Si todo va bien: `BUILD SUCCESSFUL`, y en
 `webp/build/reports/androidTests/connected/debug/index.html` los 3 tests de
@@ -97,31 +107,31 @@ Si todo va bien: `BUILD SUCCESSFUL`, y en
 (`codificaTresFotogramasDeColorPlanoYCumpleRF10`,
 `codificaContenidoRuidosoBajandoCalidadHastaCumplirRF10`,
 `rechazaBitmapsDeTamanoDistinto`), más
-`WebpAnimEncoderPerformanceTest.lineaBaseDeRendimiento_30fotogramas_contenidoAdverso`
-también en verde. Esta última ya no puede colgarse indefinidamente: tiene
-límite de 60 s por intento individual y 5 min para toda la corrida — si algo
-se descontrola, el test termina solo, marca `outcome` como timeout y
-reporta los intentos que sí alcanzó a medir, en vez de quedarse corriendo
-hasta que alguien la mate a mano (como pasó en la corrida anterior, ver la
-tabla arriba). Que el test pase en verde no significa que el tiempo esté
-bien: no hay todavía ninguna aserción contra el presupuesto de RNF-08,
-a propósito. **El número que importa no es que pase, es lo que imprime.**
+`WebpAnimEncoderPerformanceTest.estrategiaAdr0006_30fotogramas_ambosContenidos`
+también en verde. Esta última ya no puede colgarse indefinidamente: además
+del tope duro de 20 s que `WebpAnimEncoder` ya tiene incorporado
+(ADR-0006), el propio test envuelve la corrida completa en un límite de
+60 s por tipo de contenido, puramente como red de seguridad por si ese
+tope tuviera un bug. Que el test pase en verde no significa que el tiempo
+esté bien: no hay ninguna aserción contra el presupuesto de RNF-08, a
+propósito. **El número que importa no es que pase, es lo que imprime.**
 Para leerlo sin bucear en el reporte HTML:
 
 ```bash
 adb logcat -d -s StickersiniPerfBaseline:I
 ```
 
-Debería mostrar una línea por intento de codificación
-(`intento #N: quality=... minimizeSize=... sizeBytes=... elapsedMs=...`) y
-una línea `TOTAL` con el número de intentos, el tiempo total en ms, el
-`outcome` (`exito`, `timeout_corrida_completa`, o `excepcion: ...`), y la
-calidad/tamaño/número de fotogramas del resultado final si lo hubo. Ese
-`tiempoTotalMs` es el que se compara contra los 5000 ms de RNF-08. A
-diferencia de la corrida anterior, esta versión ya tiene aplicado el
-arreglo de `minimize_size`/`method` (ver el commit `fix(webp):` más
-reciente): la búsqueda usa `minimizeSize=false` en cada intento y solo la
-última pasada usa `minimizeSize=true`.
+Debería mostrar una línea por codificación individual
+(`contenido=... intento #N: frameCount=... quality=... minimizeSize=...
+sizeBytes=... elapsedMs=...`) y una línea `TOTAL contenido=...` por cada
+tipo de contenido, con el número de codificaciones, el tiempo total en ms,
+el `outcome` (`exito`, `timeout_corrida_completa`, o `excepcion: ...`), y
+la calidad/tamaño/número de fotogramas del resultado final si lo hubo. Ese
+`tiempoTotalMs` es el que se compara contra los 5000/20000 ms de RNF-08
+según el tipo de contenido. Como el logcat puede perder líneas de una
+corrida larga, la traza completa queda también en
+`webp_strategy_trace.txt` (ver `adb pull` en la sección de resultados más
+abajo).
 
 **Síntomas de fallo del NDK (no de la lógica):**
 - `UnsatisfiedLinkError: dlopen failed: library "libstickersini_webp.so" not found` en todos los tests a la vez, antes de que corra ninguna aserción → la ABI del teléfono no tiene `.so` compilado (comprobar con el `getprop` de arriba; con las 4 ABI ya cubiertas esto no debería pasar en ningún teléfono real de los últimos ~10 años).
@@ -280,6 +290,94 @@ ninguno de los dos medido todavía con `method` bajo. Sin esos dos números
 no se puede afirmar que RNF-08 sea alcanzable ni que no lo sea con la
 arquitectura actual — que es exactamente lo que ADR-0006 tendría que
 decidir, y sigue sin implementarse.
+
+**Nota posterior:** esta conclusión quedó superada el mismo día. El dato de
+`method=0` + realista (59 672 de 500 000 bytes) no dice "hay margen de
+sobra a pesar de la búsqueda" — dice que con contenido representativo **no
+hace falta ninguna búsqueda**: la primera pasada ya cabe. ADR-0006 se
+reescribió alrededor de esa observación (dejar de buscar por defecto, no
+acotar mejor la búsqueda) y sí está implementado — ver las dos secciones
+siguientes para las mediciones que faltaban y el resultado final.
+
+#### Costo de `minimize_size` a `method=0`, medido (para el umbral de ADR-0006)
+
+Mismo dispositivo, calidad 75, sin bisección — una sola pasada con
+`minimizeSize=true` por contenido, comparada contra las filas
+`minimizeSize=false` ya medidas arriba:
+
+| Contenido | `minimizeSize` | Tamaño (bytes) | Tiempo (ms) |
+|---|---|---|---|
+| adverso | false | 4 838 184 | 5 178 |
+| adverso | true | 4 838 184 | 10 360 |
+| realista | false | 59 672 | 1 330 |
+| realista | true | 59 610 | 2 232 |
+
+`minimize_size` no redujo el tamaño en absoluto sobre ruido adverso (0
+bytes) y solo 62 bytes (0.1%) sobre contenido realista, pese a costar
+1.68×–2.0× más tiempo en ambos casos. Es la medición que fija en 80% el
+umbral de "cerca del límite" de ADR-0006: el beneficio observado es tan
+pequeño que no vale la pena pagarlo salvo que ya casi no quede margen.
+
+Comando (2 mediciones, tope de 60 s cada una):
+
+```bash
+./gradlew :webp:connectedAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.capibaracasual.stickersini.webp.WebpMinimizeSizeCostTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+adb pull /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini.webp.test/files/webp_minimize_size_trace.txt
+```
+
+#### Estrategia de ADR-0006, medida en dispositivo
+
+`WebpAnimEncoderPerformanceTest.estrategiaAdr0006_30fotogramas_ambosContenidos`
+corre el orquestador real ([`WebpAnimEncoder`] sobre
+[`NativeWebpEncoder`]) de punta a punta, sobre los mismos dos contenidos de
+30 fotogramas de siempre. Mismo dispositivo, 2026-09-20:
+
+```bash
+./gradlew :webp:connectedAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.capibaracasual.stickersini.webp.WebpAnimEncoderPerformanceTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+adb pull /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini.webp.test/files/webp_strategy_trace.txt
+```
+
+`BUILD SUCCESSFUL in 19s` (todo el `connectedAndroidTest` de esta única
+clase, no solo la corrida). Resultado, leído de `webp_strategy_trace.txt`:
+
+| Contenido | Codificaciones | Tiempo total | Resultado |
+|---|---|---|---|
+| adverso | 3 | 6 223 ms | quality=75, 3/30 fotogramas, 483 522 bytes |
+| realista | 1 | 1 292 ms | quality=75, 30/30 fotogramas, 59 672 bytes |
+
+Traza completa de la corrida adversa: intento 1 (30 fotogramas, quality=75,
+`minimizeSize=false`) da 4 838 184 bytes en 4 918 ms — no cabe, la
+proporción (500 000/4 838 184 ≈ 0.103) estima 3 fotogramas; intento 2 (3
+fotogramas, quality=75) da 483 522 bytes en 483 ms — ya cabe, y al 96.7%
+del límite dispara `minimize_size`; intento 3 (3 fotogramas,
+`minimizeSize=true`) da el mismo tamaño, 483 522 bytes, en 796 ms — cero
+beneficio, consistente con la medición de la sección anterior, pero barato
+(796 ms) y se usa igual porque no empeoró. La corrida realista es una sola
+línea: 30 fotogramas, quality=75, cabe a la primera (59 672 bytes), sin
+reducir nada y sin `minimize_size` (11.9% del límite, muy por debajo del
+80%).
+
+**Lectura contra RNF-08 reescrito:**
+- Contenido representativo: 1 292 ms, muy por debajo de los 5 000 ms.
+  **Cumple con margen amplio.**
+- Contenido de alta complejidad visual (el ruido adverso, el peor caso
+  posible, no uno típico): 6 223 ms, por debajo de los 20 000 ms, y
+  entrega un resultado válido con menos fotogramas (3 de 30) tal como
+  permite la segunda cláusula de RNF-08 reescrito. **Cumple, con margen
+  amplio también** — el tope duro de 20 s de `WebpAnimEncoder` ni llegó a
+  activarse: la estrategia de ADR-0006 resolvió el caso adverso en menos
+  de un tercio del presupuesto que tiene disponible.
+- Ninguna de las dos corridas necesitó el tope de tiempo: ambas terminan
+  por convergencia normal del algoritmo (`outcome=exito` en las dos). El
+  comportamiento del tope duro ante un caso que de verdad lo agote sigue
+  sin observarse en este dispositivo — no hizo falta para estos dos
+  contenidos.
+
+Con esta medición, ADR-0006 pasa de Propuesto a Aceptado.
 
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 
