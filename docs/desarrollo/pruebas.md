@@ -35,23 +35,26 @@ Objetivo: dado un conjunto de bitmaps, producir un WebP animado de 512×512
 que cumpla RF-10 (≤500 KB), RF-12 (ajuste automático) y RF-13 (fotograma
 ≥8 ms, animación ≤10 s). Contexto y decisión en ADR-0005.
 
-Estado al 2026-09-20: `./gradlew :webp:test` (19 tests, lógica de ajuste de
-calidad y fotogramas, incluidos los 2 que verifican el patrón
-`minimizeSize` false-durante-búsqueda/true-en-la-final) y
+Estado al 2026-09-20: `./gradlew :webp:test` (21 tests, lógica de ajuste de
+calidad y fotogramas, incluida la estrategia completa de ADR-0006 y el
+piso de fotogramas de ADR-0007) y
 `./gradlew :webp:externalNativeBuildDebug` / `:webp:assembleDebug` (compila
 y enlaza contra libwebp para las cuatro ABI: arm64-v8a, armeabi-v7a, x86,
 x86_64) pasan en la máquina de desarrollo.
 Validado en dispositivo real el 2026-09-20 (Redmi Note 14, Android 14):
 `WebpAnimEncoderInstrumentedTest` (correctitud de la codificación real vía
-JNI) pasa entero. `WebpAnimEncoderPerformanceTest`, con el arreglo de
-`minimize_size`/`method` ya aplicado, corrió sin colgarse (los límites de
-tiempo funcionaron) pero **no cumple RNF-08**: cortó a los 5 minutos sin
-producir un resultado, y las dos codificaciones que sí se vieron completas
-tardaron ~13 s cada una — más del doble del presupuesto de 5 s (ver tabla
-de rendimiento más abajo). ADR-0006 sigue sin implementarse: antes hacen
-falta las tres mediciones adicionales de la sección "Antes de escribir
-ADR-0006" (traza persistente, `method` confirmado, benchmark sin búsqueda
-por `method` y tipo de contenido), pendientes de correr en el teléfono.
+JNI) pasa entero. Con la estrategia de ADR-0006 y el piso de ADR-0007 ya
+implementados, `WebpAnimEncoderPerformanceTest` **cumple RNF-08 en los dos
+contenidos medidos**: contenido representativo, 1 226 ms (muy por debajo
+de los 5 s); contenido adverso (el peor caso medido, no uno típico),
+19 825 ms de un tope de 20 s — cumple, pero con solo 175 ms de margen (ver
+detalle abajo). ADR-0006 y ADR-0007 están Aceptados. Lo que sigue
+sin observar en este dispositivo es el comportamiento del tope duro ante
+un caso que de verdad lo agote (ninguno de los contenidos probados llegó a
+necesitarlo del todo — el adverso quedó muy cerca, no lo cruzó). El
+historial completo de cómo se llegó hasta acá (la línea base sin arreglar,
+las mediciones de `method`, el defecto de 1 fps y su arreglo) queda abajo,
+fila por fila, sin editar ninguna de las ya escritas.
 
 | Fecha | Dispositivo | Android | Qué se probó | Resultado |
 |---|---|---|---|---|
@@ -87,14 +90,14 @@ adb shell getprop ro.product.cpu.abi   # informativo: ya se compilan las 4 ABI, 
 ./gradlew :webp:connectedAndroidTest
 ```
 
-Este comando corre las cinco clases de test instrumentado del módulo:
+Este comando corre las seis clases de test instrumentado del módulo:
 `WebpAnimEncoderInstrumentedTest` (correctitud),
-`WebpAnimEncoderPerformanceTest` (la estrategia completa de ADR-0006, de
-punta a punta, sobre los dos tipos de contenido),
-`WebpEncodeMethodBenchmarkTest` y `WebpMinimizeSizeCostTest` (mediciones
-puntuales sin bisección, ya corridas — ver más abajo, no hace falta
-repetirlas salvo que cambie el código nativo) y cualquier otra que se
-añada después. Para correr solo una o dos clases (evitando repetir el
+`WebpAnimEncoderPerformanceTest` (la estrategia completa de ADR-0006 y
+ADR-0007, de punta a punta, sobre los dos tipos de contenido),
+`WebpEncodeMethodBenchmarkTest`, `WebpMinimizeSizeCostTest` y
+`WebpFrameFloorMeasurementTest` (mediciones puntuales sin bisección, ya
+corridas — ver más abajo, no hace falta repetirlas salvo que cambie el
+código nativo) y cualquier otra que se añada después. Para correr solo una o dos clases (evitando repetir el
 benchmark de 2–3 min si no hace falta), usar
 `-Pandroid.testInstrumentationRunnerArguments.class=` con el nombre
 completo, separando varias con coma (ver comandos en las secciones de
@@ -378,6 +381,75 @@ reducir nada y sin `minimize_size` (11.9% del límite, muy por debajo del
   contenidos.
 
 Con esta medición, ADR-0006 pasa de Propuesto a Aceptado.
+
+### ADR-0007: el resultado adverso de arriba (3/30 fotogramas) era un defecto
+
+3 de 30 fotogramas es 1 fps: cabe en RF-10 pero deja de ser una animación.
+[ADR-0007](../../decisions/0007-piso-de-fotogramas-antes-de-bajar-calidad.md)
+fija un piso de 5 fps (15 fotogramas para el caso de referencia de 3 s) por
+debajo del cual la reducción de fotogramas de ADR-0006 no debe bajar;
+desde ahí, lo que se ajusta es la calidad.
+
+**Medición previa a la decisión** (`WebpFrameFloorMeasurementTest`, mismo
+dispositivo, contenido adverso, `method=0`, sin `minimize_size`, una sola
+pasada por configuración):
+
+| Fotogramas | Calidad | Tamaño (bytes) | Tiempo (ms) | ¿Cabe en 500 KB? |
+|---|---|---|---|---|
+| 30 | 75 | 4 838 184 | 5 178 | No |
+| 30 | 50 | 4 125 890 | 6 720 | No |
+| 30 | 25 | 3 266 680 | 5 576 | No |
+| 30 | 0 | 703 138 | 4 844 | No (40% sobre el límite) |
+| 15 | 75 | 2 417 928 | 3 993 | No |
+| 10 | 75 | 1 611 694 | 3 358 | No |
+
+Comando:
+
+```bash
+./gradlew :webp:connectedAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.capibaracasual.stickersini.webp.WebpFrameFloorMeasurementTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+adb pull /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini.webp.test/files/webp_frame_floor_trace.txt
+```
+
+Lectura: bajar calidad sola, incluso al mínimo (0), no basta a 30
+fotogramas. El tamaño escala casi perfectamente lineal con el número de
+fotogramas a calidad fija (~161 200 bytes/fotograma, consistente entre 3,
+10, 15 y 30 fotogramas medidos a quality=75). Ver el detalle completo y la
+justificación del piso de 5 fps en ADR-0007.
+
+**Corrida completa de la estrategia, ya con el piso implementado**
+(`WebpAnimEncoderPerformanceTest`, mismo dispositivo):
+
+| Contenido | Codificaciones | Tiempo total | Resultado |
+|---|---|---|---|
+| realista | 1 | 1 226 ms | quality=75, 30/30 fotogramas, 59 672 B (**sin cambios** respecto a la corrida anterior) |
+| adverso | 8 | **19 825 ms** | quality=0, **15/30 fotogramas**, 348 516 B |
+
+Traza completa del caso adverso: intento 1 (30 fotogramas, quality=75) da
+4 838 184 bytes — no cabe, el piso de 5 fps clampa la reducción a 15
+fotogramas (la proporción sola habría pedido menos). Intento 2 (15
+fotogramas, quality=75) da 2 418 984 bytes — tampoco cabe, entra la
+bisección de calidad sobre esos 15 fotogramas fijos. Intentos 3 a 8 bajan
+la calidad (37, 18, 8, 3, 1, 0); **ninguna calidad entre 1 y 74 cupo en
+500 KB** — quality=1 dio 680 120 bytes, todavía sobre el límite — así que
+la bisección corrió sus 8 intentos completos hasta el mínimo absoluto
+(quality=0, 348 516 bytes) en vez de cortar antes.
+
+**Esto deja un margen de tiempo mucho más ajustado de lo que sugería la
+extrapolación de ADR-0007: 19 825 ms de un tope de 20 000 ms — 175 ms de
+margen.** Cumple RNF-08 (segundo tramo, ≤20 s), pero por muy poco. El
+tamaño sí confirmó la extrapolación casi exacto (348 516 medidos contra
+~351 300 estimados), pero nadie había estimado cuántos intentos de
+bisección harían falta ni cuánto tardaría cada uno en el dispositivo real.
+Registrado como hallazgo en ADR-0007, no oculto: si aparece contenido real
+más adverso que este ruido sintético, o un dispositivo más lento, este es
+el primer lugar donde revisar antes de asumir que RNF-08 sigue
+cumpliéndose.
+
+Comando (igual que el de la sección anterior, ya no hace falta repetir el
+de correctitud): ver `webp_strategy_trace.txt` vía `adb pull`, comando en
+la sección "Estrategia de ADR-0006, medida en dispositivo" de arriba.
 
 ### Peso del AAB por ABI (RNF-07, valida ADR-0002)
 
