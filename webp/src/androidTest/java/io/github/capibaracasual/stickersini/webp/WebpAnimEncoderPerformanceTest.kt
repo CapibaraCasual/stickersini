@@ -33,20 +33,25 @@ private const val TOTAL_RUN_TIMEOUT_MS = 300_000L
  * descontrola, el test termine y reporte datos de todos modos en vez de
  * colgar la corrida indefinidamente (como pasó antes de este arreglo: más
  * de 100 s de CPU activa sin completar ni un intento).
+ *
+ * La corrida del 2026-09-20 (14 intentos, corte por timeout de corrida
+ * completa) perdió los intentos 1 a 12 del búfer circular de logcat: por
+ * eso, además de `Log.i`, cada línea se vuelca de inmediato a un archivo
+ * (ver [TraceWriter]) que sobrevive aunque logcat se sature o el proceso
+ * muera a mitad de la corrida.
  */
 @RunWith(AndroidJUnit4::class)
 class WebpAnimEncoderPerformanceTest {
 
     /**
-     * Envuelve [delegate] con un límite de tiempo por intento individual.
-     * Como una llamada JNI bloqueada no se puede interrumpir de verdad
-     * desde Kotlin, cada intento corre en su propio hilo daemon: si excede
-     * [PER_ATTEMPT_TIMEOUT_MS] esta clase deja de esperarlo y lanza
-     * [WebpEncodeException] para abortar la corrida, pero el hilo nativo
-     * puede seguir corriendo en segundo plano hasta que termine por su
-     * cuenta (o hasta que se desinstale el APK de test al final).
+     * Envuelve [delegate] con un límite de tiempo por intento individual,
+     * usando [TimedAttemptRunner], y registra cada intento en [trace]
+     * además de logcat.
      */
-    private class MeasuringEncoder(private val delegate: SingleShotWebpEncoder) : SingleShotWebpEncoder {
+    private class MeasuringEncoder(
+        private val delegate: SingleShotWebpEncoder,
+        private val trace: TraceWriter,
+    ) : SingleShotWebpEncoder {
         data class Attempt(
             val quality: Int,
             val minimizeSize: Boolean,
@@ -56,43 +61,33 @@ class WebpAnimEncoderPerformanceTest {
         )
 
         val attempts = mutableListOf<Attempt>()
-
-        private val executor = Executors.newSingleThreadExecutor { r ->
-            Thread(r, "webp-attempt").apply { isDaemon = true }
-        }
+        private val runner = TimedAttemptRunner("webp-attempt")
 
         override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray {
             val attemptNumber = attempts.size + 1
-            val start = System.nanoTime()
-            val future = executor.submit<ByteArray> { delegate.encode(frames, quality, minimizeSize) }
-            return try {
-                val bytes = future.get(PER_ATTEMPT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                val elapsedMs = (System.nanoTime() - start) / 1_000_000
-                attempts += Attempt(quality, minimizeSize, bytes.size, elapsedMs, timedOut = false)
-                Log.i(
-                    TAG,
-                    "intento #$attemptNumber: quality=$quality minimizeSize=$minimizeSize " +
-                        "sizeBytes=${bytes.size} elapsedMs=$elapsedMs",
-                )
-                bytes
-            } catch (timeout: TimeoutException) {
-                val elapsedMs = (System.nanoTime() - start) / 1_000_000
-                attempts += Attempt(quality, minimizeSize, null, elapsedMs, timedOut = true)
-                future.cancel(true)
-                Log.w(
-                    TAG,
-                    "intento #$attemptNumber: quality=$quality minimizeSize=$minimizeSize " +
-                        "TIMEOUT tras ${PER_ATTEMPT_TIMEOUT_MS}ms, abortando la corrida",
-                )
+            val result = runner.run(PER_ATTEMPT_TIMEOUT_MS) { delegate.encode(frames, quality, minimizeSize) }
+            attempts += Attempt(quality, minimizeSize, result.bytes?.size, result.elapsedMs, result.timedOut)
+
+            if (result.timedOut) {
+                val message = "intento #$attemptNumber: quality=$quality minimizeSize=$minimizeSize " +
+                    "TIMEOUT tras ${PER_ATTEMPT_TIMEOUT_MS}ms, abortando la corrida"
+                Log.w(TAG, message)
+                trace.line(message)
                 throw WebpEncodeException(
                     "Intento #$attemptNumber (quality=$quality, minimizeSize=$minimizeSize) " +
                         "superó el límite de ${PER_ATTEMPT_TIMEOUT_MS}ms por intento.",
                 )
             }
+
+            val message = "intento #$attemptNumber: quality=$quality minimizeSize=$minimizeSize " +
+                "sizeBytes=${result.bytes!!.size} elapsedMs=${result.elapsedMs}"
+            Log.i(TAG, message)
+            trace.line(message)
+            return result.bytes
         }
 
         fun shutdown() {
-            executor.shutdownNow()
+            runner.shutdown()
         }
     }
 
@@ -122,7 +117,8 @@ class WebpAnimEncoderPerformanceTest {
         val frameDurationMs = 100
         val frames = (0 until frameCount).map { i -> WebpFrame(noisyBitmap(seed = i), frameDurationMs) }
 
-        val measuring = MeasuringEncoder(NativeWebpEncoder)
+        val trace = TraceWriter("webp_perf_trace.txt")
+        val measuring = MeasuringEncoder(NativeWebpEncoder, trace)
         val encoder = WebpAnimEncoder(singleShotEncoder = measuring)
         val runExecutor = Executors.newSingleThreadExecutor { r ->
             Thread(r, "webp-run").apply { isDaemon = true }
@@ -147,17 +143,14 @@ class WebpAnimEncoderPerformanceTest {
         }
         val totalMs = (System.nanoTime() - wallClockStart) / 1_000_000
 
+        val totalLine = "TOTAL: intentos=${measuring.attempts.size} tiempoTotalMs=$totalMs outcome=$outcome " +
+            "resultadoQuality=${result?.quality} resultadoBytes=${result?.bytes?.size} " +
+            "resultadoFrameCount=${result?.frameCount} (entrada: $frameCount fotogramas)"
         Log.i(TAG, "=== Línea base RNF-08: $frameCount fotogramas, contenido adverso ===")
-        Log.i(
-            TAG,
-            "TOTAL: intentos=${measuring.attempts.size} tiempoTotalMs=$totalMs outcome=$outcome " +
-                "resultadoQuality=${result?.quality} resultadoBytes=${result?.bytes?.size} " +
-                "resultadoFrameCount=${result?.frameCount} (entrada: $frameCount fotogramas)",
-        )
-        println(
-            "StickersiniPerfBaseline: TOTAL intentos=${measuring.attempts.size} tiempoTotalMs=$totalMs " +
-                "outcome=$outcome resultadoQuality=${result?.quality} resultadoFrameCount=${result?.frameCount}",
-        )
+        Log.i(TAG, totalLine)
+        trace.line(totalLine)
+        trace.close()
+        println("StickersiniPerfBaseline: $totalLine (traza completa en ${trace.file.absolutePath})")
 
         // Sanidad mínima, no presupuesto de tiempo: esto es una línea base,
         // no todavía una validación de RNF-08. Debe haber datos siempre,
