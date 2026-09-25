@@ -7,6 +7,12 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.4.0-alpha] - 2026-09-24
+
+Cierra la Fase 2 completa: los dos orígenes de contenido que le tocaban
+(RF-02 video, RF-03 imagen) están implementados y medidos en dispositivo
+real, compartiendo el mismo recorte y el mismo codificador.
+
 ### Añadido
 - RF-03: `ImageFrameDecoder` decodifica una imagen o foto existente en un
   único `WebpFrame`, para `WebpAnimEncoder(targetSizeBytes =
@@ -20,6 +26,13 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 - `CenterSquareCrop`: el cálculo del cuadrado central, compartido entre
   `YuvFrameConverter` (video) e `ImageFrameDecoder` (imagen) — antes vivía
   solo dentro de `YuvFrameConverter`.
+
+Validado en dispositivo real (Xiaomi Redmi Note 14, Android 14): sobrecosto
+del contenedor de animación frente a un WebP estático real, despreciable
+(máximo 1.36% del límite de RF-11); decodificar y codificar una imagen,
+131 ms totales, 1 268 bytes; orientación EXIF corregida y verificada contra
+las cuatro rotaciones posibles. Detalle completo en
+`docs/desarrollo/pruebas.md`.
 
 ## [0.3.0-alpha] - 2026-09-24
 
