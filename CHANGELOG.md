@@ -21,7 +21,7 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   `YuvFrameConverter` (video) e `ImageFrameDecoder` (imagen) — antes vivía
   solo dentro de `YuvFrameConverter`.
 
-## [0.3.0-alpha] - 2026-09-25
+## [0.3.0-alpha] - 2026-09-24
 
 Cierra la Fase 2 de importación de video: el pipeline decodifica un video
 existente y produce un WebP animado válido de punta a punta, y RNF-08 queda

@@ -1,7 +1,7 @@
 # ADR-0009: El fps de prefiltro de Fase 2 se deriva del piso del codificador (ADR-0007), no se elige por separado
 
 - Estado: Aceptado
-- Fecha: 2026-09-25
+- Fecha: 2026-09-24
 
 ## Contexto
 
@@ -16,7 +16,7 @@ un clip de esta fase: **10 s (RF-06)**. La cuenta es `20 × 10 = 200`
 fotogramas — 6.7 veces el máximo jamás ejercitado, no una extrapolación
 menor.
 
-Medido en dispositivo real el 2026-09-25
+Medido en dispositivo real el 2026-09-24
 (`docs/desarrollo/pruebas.md`, Xiaomi Redmi Note 14, grabación de pantalla
 real de 37.7 s recortada a los 10 s de RF-06):
 

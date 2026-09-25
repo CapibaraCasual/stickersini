@@ -653,7 +653,7 @@ dispositivo, con el procedimiento de abajo.
 
 | Fecha | Dispositivo | Android | Video usado | Qué se probó | Resultado |
 |---|---|---|---|---|---|
-| 2026-09-25 | Xiaomi Redmi Note 14 (`24117RN76L`) | Android 14 (API 34), arm64-v8a | Grabación de pantalla real, `Recording_20260919_191641.mp4` (ver características abajo) | `VideoImportPerformanceTest` completo (`decodificaYCodificaUnVideoReal` + `decodificaDesdeUnInicioArbitrario`), vía `adb push` + `connectedAndroidTest` | **No cumple RNF-08.** El decode solo (10 s de origen → 200 fotogramas) tardó 31 823 ms — ya por sí solo casi 6.4× el presupuesto de 20 000 ms del segundo tramo de RNF-08, sin contar el encoder. La codificación no llegó a producir ningún resultado válido: `WebpAnimEncoder.encode` terminó en `WebpEncodeException` (RF-12) a los ~15.8 s de haber empezado, sin bajar de 500 KB ni al mínimo de calidad. `decodificaDesdeUnInicioArbitrario` (posicionamiento con `startMs=1000`) sí pasó, en 6 185 ms. Detalle completo abajo. |
+| 2026-09-24 | Xiaomi Redmi Note 14 (`24117RN76L`) | Android 14 (API 34), arm64-v8a | Grabación de pantalla real, `Recording_20260919_191641.mp4` (ver características abajo) | `VideoImportPerformanceTest` completo (`decodificaYCodificaUnVideoReal` + `decodificaDesdeUnInicioArbitrario`), vía `adb push` + `connectedAndroidTest` | **No cumple RNF-08.** El decode solo (10 s de origen → 200 fotogramas) tardó 31 823 ms — ya por sí solo casi 6.4× el presupuesto de 20 000 ms del segundo tramo de RNF-08, sin contar el encoder. La codificación no llegó a producir ningún resultado válido: `WebpAnimEncoder.encode` terminó en `WebpEncodeException` (RF-12) a los ~15.8 s de haber empezado, sin bajar de 500 KB ni al mínimo de calidad. `decodificaDesdeUnInicioArbitrario` (posicionamiento con `startMs=1000`) sí pasó, en 6 185 ms. Detalle completo abajo. |
 
 ### Video usado en esta medición
 
@@ -806,7 +806,7 @@ documentados en ADR-0009 y en el texto de arriba:
 
 | Fecha | Dispositivo | Android | Video usado | Qué se probó | Resultado |
 |---|---|---|---|---|---|
-| 2026-09-25 | Xiaomi Redmi Note 14 (`24117RN76L`) | Android 14 (API 34), arm64-v8a | Mismo `Recording_20260919_191641.mp4` de la corrida anterior | `VideoImportPerformanceTest`, prefiltro a 5 fps, con traza por intento | **Cumple RNF-08 (segundo tramo, ≤20 000 ms), no el de 5 000 ms.** Decode: 9 681 ms (50 fotogramas). Encode: 1 solo intento, quality=75, 292 538 bytes, 3 185 ms — sin bisección. Total: 12 866 ms. |
+| 2026-09-24 | Xiaomi Redmi Note 14 (`24117RN76L`) | Android 14 (API 34), arm64-v8a | Mismo `Recording_20260919_191641.mp4` de la corrida anterior | `VideoImportPerformanceTest`, prefiltro a 5 fps, con traza por intento | **Cumple RNF-08 (segundo tramo, ≤20 000 ms), no el de 5 000 ms.** Decode: 9 681 ms (50 fotogramas). Encode: 1 solo intento, quality=75, 292 538 bytes, 3 185 ms — sin bisección. Total: 12 866 ms. |
 
 ### Traza completa
 

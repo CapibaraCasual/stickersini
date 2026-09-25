@@ -1,7 +1,7 @@
 # Requisitos
 
 **Proyecto:** Stickersini
-**Versión del documento:** 1.1 · **Fecha:** 2026-09-25
+**Versión del documento:** 1.1 · **Fecha:** 2026-09-24
 
 Este documento es la referencia de qué debe hacer el sistema. No describe
 *cómo* se implementa: eso vive en `arquitectura.md` y en `decisions/`.
