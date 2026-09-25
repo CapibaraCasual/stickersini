@@ -56,6 +56,30 @@ publicada en Google Play.
 
 ### Qué falta
 
+- **Fase 3 — la interfaz.** Siguiente trabajo de código, ahora que los dos
+  orígenes de contenido de la Fase 2 (video e imagen) están implementados y
+  medidos:
+  - Selector de archivo (video, imagen, foto de cámara).
+  - Recorte temporal (RF-06): hoy `VideoFrameDecoder` ya acepta un tramo
+    (`startMs`, `durationMs`), pero nada en la UI todavía elige uno propio —
+    siempre se pide desde el segundo 0.
+  - Recorte de área elegido por el usuario (RF-07): hoy `CenterSquareCrop`
+    siempre recorta al cuadrado centrado más grande, sin ninguna elección de
+    por medio. Cuando exista este recorte, tiene que reemplazar esa regla
+    fija en los dos consumidores que la comparten (`YuvFrameConverter`,
+    `ImageFrameDecoder`), no solo en uno.
+  - Vista previa del resultado (RF-09).
+  - **El indicador de progreso de RNF-08 debe mostrarse siempre, no solo
+    para clips largos o de alta complejidad visual.** Medido en el Redmi
+    Note 14: un clip de 5 s cumple el tramo rápido (≤5 s) con solo 361 ms de
+    margen; en un dispositivo más lento ese mismo clip podría superarlo, y
+    ahí el progreso es lo que sostiene la experiencia, no un detalle solo
+    del caso lento. Ver `docs/desarrollo/pruebas.md`.
+- **ADR pendiente: dónde se almacenan los packs que arma el usuario** (no
+  el semilla) y cómo se sirven al `ContentProvider`. Todavía no hace falta
+  —no hay UI que genere un pack propio— pero va a hacer falta en cuanto la
+  Fase 3 tenga que mostrar los stickers ya generados, antes de escribir
+  código de persistencia.
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
   - Issue de los stickers semilla: los 3 actuales son cuadrados de color
@@ -66,21 +90,8 @@ publicada en Google Play.
     vendorizado (ADR-0005), así que ninguna herramienta automática de
     generación de licencias lo detecta; hay que añadir el `COPYING` de
     libwebp a la pantalla de licencias a mano.
-  - Historias de usuario del trabajo pendiente (Fase 2 en adelante), para
+  - Historias de usuario del trabajo pendiente (Fase 3 en adelante), para
     rastrearlo fuera de este README.
-- **UI de la Fase 2** (selección de archivo, recorte temporal RF-06,
-  recorte de área RF-07, vista previa RF-09): siguiente trabajo de código,
-  ahora que los dos orígenes de contenido de esta fase (video e imagen)
-  están implementados y medidos.
-- **Al implementar la UI: el indicador de progreso de RNF-08 debe mostrarse
-  siempre, no solo para clips largos o de alta complejidad visual.** Medido
-  en el Redmi Note 14: un clip de 5 s cumple el tramo rápido (≤5 s) con solo
-  361 ms de margen; en un dispositivo más lento ese mismo clip podría
-  superarlo, y ahí el progreso es lo que sostiene la experiencia, no un
-  detalle solo del caso lento. Ver `docs/desarrollo/pruebas.md`.
-- **Al llegar a los packs del usuario:** falta un ADR sobre dónde se
-  almacenan los packs que arma el usuario (no el semilla) y cómo se
-  sirven al `ContentProvider`.
 
 ## Instalación
 
