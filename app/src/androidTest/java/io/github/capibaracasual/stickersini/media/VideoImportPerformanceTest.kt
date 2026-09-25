@@ -117,10 +117,12 @@ class VideoImportPerformanceTest {
             val importResult = VideoFrameDecoder().decode(context, Uri.fromFile(videoFile), durationMs = durationMs)
             val decodeMs = (System.nanoTime() - decodeStart) / 1_000_000
 
+            val restoMs = decodeMs - importResult.acquireImageMs - importResult.conversionMs
             trace.line(
                 "decode: elapsedMs=$decodeMs sourceDurationMs=${importResult.sourceDurationMs} " +
                     "truncated=${importResult.truncated} decodedFrameCount=${importResult.decodedFrameCount} " +
-                    "framesParaEncoder=${importResult.frames.size}",
+                    "framesParaEncoder=${importResult.frames.size} " +
+                    "acquireImageMs=${importResult.acquireImageMs} conversionMs=${importResult.conversionMs} restoMs=$restoMs",
             )
 
             val measuring = MeasuringEncoder(ProductionWebpEncoder, trace)

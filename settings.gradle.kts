@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "Stickersini"
 include(":app")
 include(":webp")
+include(":yuv")

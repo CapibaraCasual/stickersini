@@ -49,12 +49,15 @@ Decidido y documentado. No lo cambies sin escribir un ADR nuevo.
 | Decodificación de video | `MediaCodec` del framework | ADR-0002 |
 | Licencia | GPL-3.0 | ADR-0003 |
 | Entrega a WhatsApp | `ContentProvider` WAStickerApps + pack semilla | ADR-0004 |
+| Conversión YUV→RGB | C vía JNI/NDK, módulo `:yuv` propio (no `:webp` ni `:app`) | ADR-0011 |
 
 **No uses FFmpeg.** Está descartado por peso y licencia (ADR-0002).
 
-Otras elecciones razonables mientras no haya ADR en contra: Room para
-persistencia, Hilt o inyección manual para dependencias, Coroutines + Flow para
-concurrencia, `targetSdk` 36 y `minSdk` 26 (RNF-04, RNF-05).
+Otras elecciones razonables mientras no haya ADR en contra: Hilt o inyección
+manual para dependencias, Coroutines + Flow para concurrencia, `targetSdk` 36
+y `minSdk` 26 (RNF-04, RNF-05). Para persistencia de packs de usuario, no
+Room: ver ADR-0010 (JSON + archivos en almacenamiento interno, misma forma
+que ya usa el pack semilla).
 
 ---
 
@@ -71,6 +74,7 @@ stickersini/
 │       └── provider/       StickerContentProvider (contrato WAStickerApps)
 │
 ├── webp/                   módulo NDK: libwebp + capa JNI (CMake)
+├── yuv/                    módulo NDK: conversión YUV→RGB + recorte (CMake, ADR-0011)
 │
 ├── docs/
 │   ├── usuario/            guías para quien usa la app

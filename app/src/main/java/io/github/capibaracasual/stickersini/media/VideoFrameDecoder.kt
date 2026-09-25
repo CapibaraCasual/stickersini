@@ -11,6 +11,7 @@ import android.media.MediaFormat
 import android.net.Uri
 import io.github.capibaracasual.stickersini.webp.FrameTiming
 import io.github.capibaracasual.stickersini.webp.WebpFrame
+import kotlin.math.ceil
 
 private const val DEQUEUE_TIMEOUT_US = 10_000L
 private const val IMAGE_AVAILABLE_TIMEOUT_MS = 200L
@@ -43,6 +44,10 @@ class VideoFrameDecoder(
     /**
      * @param startMs instante de inicio del tramo dentro del video de origen.
      * @param durationMs duración pedida; se recorta a [MAX_CLIP_DURATION_MS] si la supera (RF-06).
+     * @param onFrameDecoded se llama cada vez que un fotograma sobrevive el
+     * prefiltro de [FrameSampler] y ya se convirtió a bitmap, con cuántos
+     * lleva y una estimación del total (RNF-08: avance real, no un
+     * indicador indeterminado).
      * @throws VideoDecodeException si el archivo no tiene pista de video, si
      * `MediaCodec` no entrega ningún fotograma dentro del tramo decodificado,
      * o si la decodificación nativa falla.
@@ -52,6 +57,7 @@ class VideoFrameDecoder(
         uri: Uri,
         startMs: Long = 0L,
         durationMs: Long = MAX_CLIP_DURATION_MS,
+        onFrameDecoded: (framesDecoded: Int, estimatedTotalFrames: Int) -> Unit = { _, _ -> },
     ): VideoImportResult {
         val extractor = MediaExtractor()
         try {
@@ -59,13 +65,18 @@ class VideoFrameDecoder(
                 val descriptor = checkNotNull(pfd) { "No se pudo abrir $uri" }
                 extractor.setDataSource(descriptor.fileDescriptor)
             }
-            return decodeSelectedTrack(extractor, startMs, durationMs)
+            return decodeSelectedTrack(extractor, startMs, durationMs, onFrameDecoded)
         } finally {
             extractor.release()
         }
     }
 
-    private fun decodeSelectedTrack(extractor: MediaExtractor, startMs: Long, durationMs: Long): VideoImportResult {
+    private fun decodeSelectedTrack(
+        extractor: MediaExtractor,
+        startMs: Long,
+        durationMs: Long,
+        onFrameDecoded: (framesDecoded: Int, estimatedTotalFrames: Int) -> Unit,
+    ): VideoImportResult {
         val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
             extractor.getTrackFormat(index).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true
         } ?: throw VideoDecodeException("El archivo no tiene ninguna pista de video")
@@ -86,6 +97,7 @@ class VideoFrameDecoder(
         }
 
         val clip = ClipRange.of(startMs, durationMs, sourceDurationMs = sourceDurationUs / 1_000)
+        val estimatedTotalFrames = ceil((clip.endUs - clip.startUs) / 1_000_000.0 * targetFps).toInt().coerceAtLeast(1)
 
         extractor.selectTrack(trackIndex)
         // Posicionarse en el keyframe anterior o igual a startUs: MediaCodec
@@ -112,6 +124,15 @@ class VideoFrameDecoder(
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
+            // Desglose de dónde se va el tiempo del decode (para decidir si
+            // vale la pena mover la conversión YUV→RGB a la capa nativa):
+            // cuánto de acquireImageWithRetry (esperar el buffer decodificado)
+            // y cuánto de YuvFrameConverter (la conversión en sí). El resto
+            // del tiempo de este bucle (extraer muestras, encolar/desencolar
+            // en MediaCodec) es decodeMs menos estas dos sumas, no hace falta
+            // medirlo aparte.
+            var acquireImageMs = 0L
+            var conversionMs = 0L
 
             while (!outputDone) {
                 if (!inputDone) {
@@ -148,13 +169,18 @@ class VideoFrameDecoder(
                     codec.releaseOutputBuffer(outputIndex, keep)
                     if (keep) {
                         decodedFrameCount++
+                        val acquireStart = System.nanoTime()
                         val image = acquireImageWithRetry(imageReader)
+                        acquireImageMs += (System.nanoTime() - acquireStart) / 1_000_000L
                         try {
+                            val convertStart = System.nanoTime()
                             keptBitmaps += YuvFrameConverter.toSquareBitmap(image, rotationDegrees, STICKER_SIZE)
+                            conversionMs += (System.nanoTime() - convertStart) / 1_000_000L
                             keptPtsUs += presentationTimeUs
                         } finally {
                             image.close()
                         }
+                        onFrameDecoded(keptBitmaps.size, estimatedTotalFrames)
                     }
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         outputDone = true
@@ -167,6 +193,8 @@ class VideoFrameDecoder(
                 decodedFrameCount = decodedFrameCount,
                 sourceDurationMs = sourceDurationUs / 1_000,
                 truncated = clip.truncated,
+                acquireImageMs = acquireImageMs,
+                conversionMs = conversionMs,
             )
         } finally {
             runCatching { codec.stop() }
@@ -219,4 +247,8 @@ data class VideoImportResult(
     val sourceDurationMs: Long,
     /** RF-06: `true` si el tramo procesado quedó más corto que lo pedido (tope de 10 s, o el video no llegaba). */
     val truncated: Boolean,
+    /** Cuánto de [decode] se fue esperando `ImageReader.acquireNextImage()`, sumado sobre todos los fotogramas conservados. */
+    val acquireImageMs: Long,
+    /** Cuánto de [decode] se fue en [YuvFrameConverter], sumado sobre todos los fotogramas conservados. */
+    val conversionMs: Long,
 )

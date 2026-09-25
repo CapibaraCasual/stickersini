@@ -2,6 +2,8 @@ package io.github.capibaracasual.stickersini.media
 
 import android.graphics.Bitmap
 import android.media.Image
+import io.github.capibaracasual.stickersini.yuv.NativeYuvConverter
+import java.nio.ByteBuffer
 
 /**
  * Convierte un [Image] `YUV_420_888` (la salida de un `MediaCodec`
@@ -12,6 +14,14 @@ import android.media.Image
  * (`docs/desarrollo/pruebas.md`) que el costo escala con los píxeles
  * convertidos, no con recorrer el video, así que la ruta CPU de ADR-0008
  * queda confirmada sin necesitar GPU.
+ *
+ * **La conversión en sí (el bucle YUV→RGB) corre en C, vía JNI
+ * ([NativeYuvConverter], módulo `:yuv`), no en Kotlin (ADR-0011): medido
+ * que el bucle en Kotlin era el 54-63% del tiempo de decodificar un video,
+ * y crecía con la duración del clip.** [yuv420CenterSquareToArgbKotlinReference]
+ * conserva esa implementación original, ya no en la ruta de producción,
+ * como referencia del test de paridad píxel a píxel contra la nativa
+ * (`YuvConversionParityTest`).
  *
  * El recorte de área que elige el usuario (RF-07) no existe todavía: por
  * ahora se recorta al cuadrado centrado más grande posible, sin ninguna
@@ -46,34 +56,55 @@ internal object YuvFrameConverter {
         }
     }
 
+    /** Extrae planos, strides y el recorte de [image] y delega en [NativeYuvConverter] (ADR-0011). */
+    private fun yuv420CenterSquareToArgb(image: Image): Bitmap {
+        val crop = CenterSquareCrop.of(image.width, image.height)
+        val yPlane = image.planes[0]
+        val uPlane = image.planes[1]
+        val vPlane = image.planes[2]
+        return NativeYuvConverter.convert(
+            yBuffer = yPlane.buffer,
+            yRowStride = yPlane.rowStride,
+            uBuffer = uPlane.buffer,
+            uRowStride = uPlane.rowStride,
+            uPixelStride = uPlane.pixelStride,
+            vBuffer = vPlane.buffer,
+            vRowStride = vPlane.rowStride,
+            vPixelStride = vPlane.pixelStride,
+            xOffset = crop.xOffset,
+            yOffset = crop.yOffset,
+            size = crop.size,
+        )
+    }
+
     /**
-     * BT.601, entero: misma fórmula que usan otras muestras de Android para
+     * Implementación de referencia, ya no la ruta de producción (ver
+     * [yuv420CenterSquareToArgb] / [NativeYuvConverter], ADR-0011). BT.601,
+     * entero: misma fórmula que usan otras muestras de Android para
      * `YUV_420_888` (evita el costo de punto flotante por píxel sin
      * necesitar una tabla de conversión aparte). Las posiciones de los
      * planos U/V respetan strides y `pixelStride` propios: `YUV_420_888` no
      * garantiza que estén empaquetados de forma contigua. Convierte
-     * únicamente el cuadrado centrado más grande de la imagen de origen
-     * (ver KDoc de la clase): recorre `size × size` posiciones, no
-     * `width × height`.
+     * únicamente el cuadrado `size × size` que empieza en
+     * ([xOffset], [yOffset]), no `width × height`.
+     *
+     * `internal`, no `private`: la usa `YuvConversionParityTest`
+     * (`app/src/androidTest`) para comparar, píxel a píxel y sobre los
+     * mismos buffers sintéticos, contra [NativeYuvConverter.convert].
      */
-    private fun yuv420CenterSquareToArgb(image: Image): Bitmap {
-        val crop = CenterSquareCrop.of(image.width, image.height)
-        val size = crop.size
-        val xOffset = crop.xOffset
-        val yOffset = crop.yOffset
-
-        val yPlane = image.planes[0]
-        val uPlane = image.planes[1]
-        val vPlane = image.planes[2]
-        val yBuffer = yPlane.buffer
-        val uBuffer = uPlane.buffer
-        val vBuffer = vPlane.buffer
-        val yRowStride = yPlane.rowStride
-        val uRowStride = uPlane.rowStride
-        val vRowStride = vPlane.rowStride
-        val uPixelStride = uPlane.pixelStride
-        val vPixelStride = vPlane.pixelStride
-
+    internal fun yuv420CenterSquareToArgbKotlinReference(
+        yBuffer: ByteBuffer,
+        yRowStride: Int,
+        uBuffer: ByteBuffer,
+        uRowStride: Int,
+        uPixelStride: Int,
+        vBuffer: ByteBuffer,
+        vRowStride: Int,
+        vPixelStride: Int,
+        xOffset: Int,
+        yOffset: Int,
+        size: Int,
+    ): Bitmap {
         val pixels = IntArray(size * size)
         for (row in 0 until size) {
             val sourceRow = row + yOffset

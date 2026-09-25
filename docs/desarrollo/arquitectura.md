@@ -17,6 +17,16 @@ interno de una clase concreta viven en su KDoc, no acá.
   decide de dónde salen los fotogramas ni cuántos hay: eso es
   responsabilidad de quien llame"*. Este contrato es la frontera que
   cualquier fase nueva debe respetar sin tocar `:webp`.
+- **`:yuv`** ([ADR-0011](../../decisions/0011-conversion-yuv-a-rgb-en-capa-nativa.md))
+  — conversión YUV→RGB con recorte al cuadrado central, en C vía JNI. Su
+  contrato de entrada son los tres planos de un `YUV_420_888` (`ByteBuffer`
+  directos, con sus strides) más un recorte (`xOffset`, `yOffset`, `size`);
+  devuelve un `Bitmap` `ARGB_8888` ya recortado. No conoce `:webp` ni
+  `WebpFrame`: es un módulo de conversión de color, no de codificación.
+  `:app` es el único que lo llama, desde `media/YuvFrameConverter`, que
+  conserva la implementación equivalente en Kotlin como referencia para
+  `YuvConversionParityTest` (paridad píxel a píxel), no como ruta de
+  producción.
 
 ## Flujo: importar un video existente hasta un WebP animado (Fase 2, RF-02)
 
@@ -35,11 +45,13 @@ interno de una clase concreta viven en su KDoc, no acá.
    antes de ese punto. La salida va hacia la superficie de un `ImageReader`
    en `YUV_420_888`. El decodificador entrega fotogramas a la tasa original
    del video (30 fps o más); un muestreo uniforme sobre el timestamp decide
-   cuáles se conservan (fps objetivo: 20, ver ADR-0008 para el porqué de ese
-   número). Solo los fotogramas conservados se convierten de YUV a RGB y se
-   escalan/recortan a 512×512; los descartados no pagan ese costo, aunque el
-   decode en sí ya ocurrió (las dependencias entre fotogramas P/B no
-   permiten saltárselo).
+   cuáles se conservan ([ADR-0009](../../decisions/0009-fps-de-prefiltro-derivado-del-piso-del-codificador.md)
+   fija el fps de prefiltro en 5, no en el 20 original de ADR-0008). Solo
+   los fotogramas conservados se convierten de YUV a RGB (`:yuv`, C vía
+   JNI, [ADR-0011](../../decisions/0011-conversion-yuv-a-rgb-en-capa-nativa.md))
+   y se escalan/recortan a 512×512; los descartados no pagan ese costo,
+   aunque el decode en sí ya ocurrió (las dependencias entre fotogramas P/B
+   no permiten saltárselo).
 4. **Recorte de área** (RF-07) y **eliminación de fondo** (RF-08) — fuera del
    alcance de la Fase 2, no implementados todavía. Cuando existan, se
    insertan entre la conversión del paso 3 y el envoltorio del paso 5, sin
