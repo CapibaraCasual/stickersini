@@ -18,7 +18,7 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.4.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.5.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
 ### Qué funciona ya
@@ -53,39 +53,64 @@ publicada en Google Play.
   existente, sin UI todavía (selección de archivo, recorte de área), sin
   guardar el resultado como sticker de un pack ni entregarlo a WhatsApp —
   eso sigue en "Qué falta".
+- **Fase 3 — en curso: primer recorrido de punta a punta.** Elegir un
+  video o una imagen → conversión con progreso real → vista previa (un
+  solo fotograma, no animada todavía) → guardar. Con recorte automático al
+  centro, sin selector de tramo ni de área propios (RF-06/RF-07 siguen en
+  "Qué falta"). El resultado se guarda siempre en uno de los dos packs
+  semilla (estático o animado según corresponda, ADR-0010) — no hay
+  todavía un pack propio con nombre (RF-15).
+  - `StickerConversionPipeline` reporta avance real en cada etapa
+    (fotogramas decodificados, intento de codificación), no un indicador
+    indeterminado.
+  - Segundo pack semilla, animado (`sticker_pack_semilla_animado`): sin
+    él, el primer sticker animado del usuario no tenía dónde entrar sin
+    volver a chocar con el mínimo de 3 de RF-16 (ADR-0004, ADR-0010).
+  - **La conversión YUV→RGB del video se movió a un módulo nativo nuevo,
+    `:yuv`** (C vía JNI, ADR-0011): medida como el 54-63% del tiempo de
+    decodificar un video, quedó 2.87×-3.51× más rápida, validada píxel a
+    píxel contra la implementación anterior en Kotlin (que se conserva
+    como referencia).
+  - **El fps de prefiltro de video sube de 5 a 8** (ADR-0012, reemplaza
+    ADR-0009): con el decode más barato, es el valor más alto que cumple
+    de forma confiable —contando el peor caso de 5 corridas, no la
+    mediana— los dos tramos de tiempo de RNF-08 en clips de 3, 5 y 10 s.
+    Medido en un solo dispositivo hasta ahora, con margen ajustado (12%)
+    en los clips de 5 y 10 s — ver `docs/desarrollo/pruebas.md` para por
+    qué eso importa antes de sumar una segunda fila de hardware.
 
 ### Qué falta
 
-- **Fase 3 — la interfaz.** Siguiente trabajo de código, ahora que los dos
-  orígenes de contenido de la Fase 2 (video e imagen) están implementados y
-  medidos:
-  - Selector de archivo (video, imagen, foto de cámara).
+- **Fase 3 — el resto de la interfaz**, sobre el recorrido mínimo que ya
+  funciona:
   - Recorte temporal (RF-06): hoy `VideoFrameDecoder` ya acepta un tramo
     (`startMs`, `durationMs`), pero nada en la UI todavía elige uno propio —
     siempre se pide desde el segundo 0.
-  - Recorte de área elegido por el usuario (RF-07): hoy `CenterSquareCrop`
+  - Recorte de área con pellizco de dos dedos (RF-07): hoy `CenterSquareCrop`
     siempre recorta al cuadrado centrado más grande, sin ninguna elección de
     por medio. Cuando exista este recorte, tiene que reemplazar esa regla
     fija en los dos consumidores que la comparten (`YuvFrameConverter`,
     `ImageFrameDecoder`), no solo en uno.
-  - Vista previa del resultado (RF-09).
-  - **El indicador de progreso de RNF-08 debe mostrarse siempre, no solo
-    para clips largos o de alta complejidad visual.** Medido en el Redmi
-    Note 14: un clip de 5 s cumple el tramo rápido (≤5 s) con solo 361 ms de
-    margen; en un dispositivo más lento ese mismo clip podría superarlo, y
-    ahí el progreso es lo que sostiene la experiencia, no un detalle solo
-    del caso lento. Ver `docs/desarrollo/pruebas.md`.
-- **ADR pendiente: dónde se almacenan los packs que arma el usuario** (no
-  el semilla) y cómo se sirven al `ContentProvider`. Todavía no hace falta
-  —no hay UI que genere un pack propio— pero va a hacer falta en cuanto la
-  Fase 3 tenga que mostrar los stickers ya generados, antes de escribir
-  código de persistencia.
+  - Flujo pensado: elegir video → elegir tramo de 10 s (RF-06) → encuadrar
+    con pellizco (RF-07) → vista previa → guardar.
+  - Gestión de stickers y packs (RF-15, RF-16): ver los stickers ya
+    creados, crear packs propios con nombre, renombrarlos, eliminar
+    stickers. Hoy no existe ninguna pantalla para esto.
+  - **Trabajo de diseño de la interfaz, no solo de funciones.** Lo que hay
+    hoy es funcional pero tosco. El criterio para el guardado: que nunca se
+    sienta como un trámite administrativo (el mecanismo de packs semilla ya
+    lo permite —guardar es instantáneo—, falta que la pantalla lo transmita).
+- **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
+  las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
+  Note 14; el margen que deja 8 fps de prefiltro (ADR-0012) es ajustado
+  (12%) en dos de los tres casos medidos, y podría no sostenerse en un
+  dispositivo más lento.
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
-  - Issue de los stickers semilla: los 3 actuales son cuadrados de color
-    plano de prueba, no material de marca; según ADR-0004 el pack semilla
-    es permanente y viaja con la app, así que hay que reemplazarlos antes
-    de publicar.
+  - Issue de los stickers semilla: los placeholders actuales (3 estáticos,
+    3 animados) son cuadrados de color plano de prueba, no material de
+    marca; según ADR-0004 los packs semilla son permanentes y viajan con
+    la app, así que hay que reemplazarlos antes de publicar.
   - Issue de los avisos de licencia (RNF-11): el código de libwebp viaja
     vendorizado (ADR-0005), así que ninguna herramienta automática de
     generación de licencias lo detecta; hay que añadir el `COPYING` de
@@ -109,6 +134,7 @@ siguiendo [la guía de instalación](docs/desarrollo/instalacion.md).
 - **Kotlin + Jetpack Compose** — aplicación y interfaz
 - **MediaProjection** — captura de pantalla
 - **MediaCodec** — decodificación del video de origen
+- **C vía JNI/NDK (módulo `:yuv`)** — conversión de color YUV→RGB
 - **libwebp (`WebPAnimEncoder`) vía JNI/NDK** — codificación de los stickers
 - **ContentProvider** — entrega de los packs a WhatsApp
 
