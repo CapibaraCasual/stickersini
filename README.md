@@ -18,7 +18,7 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.2.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.3.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
 ### Qué funciona ya
@@ -32,6 +32,20 @@ publicada en Google Play.
   RF-10, RF-12, RF-13 y RNF-08 con margen real medido, tanto en contenido
   representativo como en el peor caso adverso probado. Detalle completo en
   [`docs/desarrollo/pruebas.md`](docs/desarrollo/pruebas.md).
+- **Fase 2 — importación de video, cerrada (RF-02).** El módulo `media/`
+  decodifica un video existente con `MediaCodec` hacia fotogramas listos
+  para `:webp` (ADR-0008: ruta CPU vía `ImageReader`, confirmada en
+  dispositivo real, sin necesitar GPU; ADR-0009: fps de prefiltro derivado
+  del piso de ADR-0007). **RNF-08 validado con una grabación de pantalla
+  real en un Redmi Note 14:** un clip de 3 s (la referencia del propio
+  requisito) convierte en 3 163 ms, con margen; el máximo de 10 s cae, como
+  está previsto, en el segundo tramo del requisito (≤20 s). Detalle
+  completo, con las tres rondas de medición, en
+  [`docs/desarrollo/pruebas.md`](docs/desarrollo/pruebas.md). Alcance de
+  esta fase: produce un WebP válido a partir de un video existente, sin UI
+  todavía (selección de archivo, recorte), sin importación de imagen
+  (RF-03), sin guardar el resultado como sticker de un pack ni entregarlo a
+  WhatsApp — eso sigue en "Qué falta".
 
 ### Qué falta
 
@@ -47,15 +61,16 @@ publicada en Google Play.
     libwebp a la pantalla de licencias a mano.
   - Historias de usuario del trabajo pendiente (Fase 2 en adelante), para
     rastrearlo fuera de este README.
-- **Fase 2 — importación de video e imagen con `MediaCodec`.** Siguiente
-  fase: decodificar video existente y fotos/capturas como fuente de
-  fotogramas para el encoder, además de la captura de pantalla en vivo.
-- **Al llegar a la Fase 2:** volver a medir el codificador con grabaciones
-  de pantalla reales, no el contenido sintético de
-  `docs/desarrollo/pruebas.md`, y revisar con esos datos si el umbral del
-  50% para seguir bisecando calidad hacia arriba en el piso de fotogramas
-  (ADR-0007) sigue siendo razonable, y si `minimize_size` aporta algo real
-  fuera del contenido sintético — si no, quitarlo.
+- **Importación de imagen (RF-03)** y **UI de la Fase 2** (selección de
+  archivo, recorte temporal RF-06, recorte de área RF-07, vista previa
+  RF-09): siguiente trabajo de código. El pipeline fotograma→WebP ya existe
+  y está medido, así que esta parte debería ser corta.
+- **Al implementar la UI: el indicador de progreso de RNF-08 debe mostrarse
+  siempre, no solo para clips largos o de alta complejidad visual.** Medido
+  en el Redmi Note 14: un clip de 5 s cumple el tramo rápido (≤5 s) con solo
+  361 ms de margen; en un dispositivo más lento ese mismo clip podría
+  superarlo, y ahí el progreso es lo que sostiene la experiencia, no un
+  detalle solo del caso lento. Ver `docs/desarrollo/pruebas.md`.
 - **Al llegar a los packs del usuario:** falta un ADR sobre dónde se
   almacenan los packs que arma el usuario (no el semilla) y cómo se
   sirven al `ContentProvider`.
