@@ -109,6 +109,15 @@ cálculo de parámetros del encoder. Tests instrumentados para el
 `ContentProvider`. No pidas tests de UI exhaustivos: no valen el mantenimiento
 en este proyecto.
 
+**Mediciones de rendimiento.** Toda decisión sobre un parámetro que afecta
+tiempo, tamaño o cantidad de trabajo (fps, calidad, número de fotogramas,
+tiempos límite) se toma después de medir en dispositivo real, nunca antes —
+un valor que "suena razonable" puede estar fuera de cualquier escala ya
+probada (ver "Errores conocidos" más abajo). El registro de esas mediciones
+vive en `docs/desarrollo/pruebas.md`: ahí van las trazas completas, las
+tablas de antes-y-después y el razonamiento numérico. Un ADR cita el
+resultado medido, no lo reemplaza ni lo repite completo.
+
 ---
 
 ## Cómo compilar
@@ -133,6 +142,31 @@ en este proyecto.
 - **No intentes eludir `FLAG_SECURE`** de otras aplicaciones (RNF-03). Es motivo
   de rechazo en Google Play.
 - **No mezcles stickers animados y estáticos** en un mismo pack (RF-18).
+- **No elijas un parámetro que multiplica el volumen de trabajo (fps de
+  muestreo, número de fotogramas, etc.) sin calcular qué significa en el
+  caso límite real** (el tope de duración de RF-06, el peor contenido)
+  contra la escala que ya se midió. El prefiltro de fotogramas de la
+  importación de video se fijó en 20 fps por sonar razonable; sobre el tope
+  de 10 s de RF-06 son 200 fotogramas, 6.7× lo único medido hasta entonces
+  (30, en las pruebas de `:webp`), y agotó el codificador sin encontrar
+  ningún resultado válido (ADR-0009, `docs/desarrollo/pruebas.md`).
+- **Al recortar o reducir contenido visual (video, imagen), hacelo antes de
+  la operación cara (conversión de color, decodificación a resolución
+  completa), no después.** Medido dos veces con la misma ganancia: recortar
+  al cuadrado central antes de convertir YUV→RGB bajó el tiempo de
+  decodificación de video un 37%; decodificar una imagen con `inSampleSize`
+  antes de recortar evita decodificar resolución que se va a descartar.
+- **`internal` en un módulo Gradle no es visible desde otro módulo aunque
+  dependa de él con `implementation()`.** Para instrumentar o medir algo de
+  `:webp` desde un test de `:app` (o viceversa), exponé una referencia
+  pública puntual (ver `ProductionWebpEncoder` en `NativeWebpEncoder.kt`) en
+  vez de bajarle la visibilidad a la clase original.
+- **Verificá la fecha real (`date` en la terminal) antes de escribirla en un
+  ADR, el CHANGELOG o `pruebas.md`.** Ya se escribió mal una vez (un día
+  adelantada) por asumirla en vez de comprobarla.
+- **`adb` desde Git Bash reescribe un path remoto que empieza con `/`**
+  (como `/sdcard/...`) a un path de Windows, rompiendo `adb push`/`pull`.
+  Anteponer una barra extra (`//sdcard/...`) evita esa conversión.
 
 ---
 
