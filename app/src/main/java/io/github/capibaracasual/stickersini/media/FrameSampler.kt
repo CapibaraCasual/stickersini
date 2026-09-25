@@ -15,13 +15,19 @@ const val MAX_CLIP_DURATION_MS = 10_000L
  * dispositivo real (ADR-0009) resultó en 200 fotogramas para un clip de
  * 10 s — 6.7× el máximo que `WebpAnimEncoder` había probado (30, en las
  * mediciones de ADR-0006/ADR-0007) — y el codificador agotó su tope de 20 s
- * sin encontrar ningún resultado válido. ADR-0009 reemplaza ese valor por
- * el propio piso de ADR-0007 (5 fps): no un número elegido por separado
- * para "verse fluido", sino el mismo piso que el codificador ya trata como
- * aceptable, para no pedirle más trabajo del que hay evidencia de que
- * puede hacer a tiempo.
+ * sin encontrar ningún resultado válido. ADR-0009 reemplazó ese valor por
+ * el piso de ADR-0007 (5 fps), conservador a propósito por falta de
+ * margen medido.
+ *
+ * **ADR-0012 sube este valor a 8**, una vez que ADR-0011 (conversión
+ * YUV→RGB nativa) liberó margen de tiempo real: es el fps más alto que
+ * cumple de forma confiable, contando el peor caso de 5 corridas, en las
+ * tres duraciones medidas (3, 5 y 10 s) — 9 fps ya falla el tramo de 5 s de
+ * RNF-08 en 2 de 5 corridas. Un solo valor, no dependiente de la duración
+ * del clip: no hay razón de producto para que un sticker corto se vea peor
+ * que uno largo.
  */
-const val VIDEO_PREFILTER_TARGET_FPS = 5
+const val VIDEO_PREFILTER_TARGET_FPS = 8
 
 /**
  * Decide, fotograma a fotograma y en el mismo orden en que `MediaCodec` los

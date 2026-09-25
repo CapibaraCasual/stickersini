@@ -1,6 +1,7 @@
 # ADR-0009: El fps de prefiltro de Fase 2 se deriva del piso del codificador (ADR-0007), no se elige por separado
 
-- Estado: Aceptado
+- Estado: Aceptado — Superseded por [ADR-0012](0012-fps-de-prefiltro-sube-a-8-tras-conversion-nativa.md)
+  (el valor de fps, 5→8, una vez que ADR-0011 liberó margen de tiempo real)
 - Fecha: 2026-09-24
 
 ## Contexto

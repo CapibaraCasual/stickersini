@@ -19,6 +19,35 @@ correspondiente.
 | <fecha> | <marca y modelo> | <versión de Android / API> | <WhatsApp o WhatsApp Business y versión> | <qué se probó> | <resultado> |
 ```
 
+## Método de medición de tiempo (a partir del 2026-09-24)
+
+**Toda medición de tiempo en dispositivo real es de al menos 5 corridas del
+mismo caso, sin tocar código entre una y otra; se reporta mediana y rango
+(mín-máx), nunca un número suelto.** Antes de esta fecha no era así: cada
+medición de esta fase (Fase 1, Fase 2, y la primera pasada de la
+exploración de fps de más abajo) fue una sola corrida. Eso no se descubrió
+por revisión sino midiendo: el mismo clip de 5 s, repetido 10 veces seguidas
+sin cambiar nada, dio 4 920, 5 126, 4 639, 4 922, 4 864, 4 924, 4 931, 5 010,
+4 563 y 5 023 ms — un 14% de variación de punta a punta (563 ms sobre una
+base de ~4 900 ms), más grande que el margen de 361 ms que ADR-0009 había
+medido y aceptado con una sola corrida. **Todas las mediciones de tiempo
+anteriores a esta fecha son, por tanto, menos precisas de lo que su
+redacción original sugiere** (un número exacto sin rango implica una
+certeza que una corrida única no puede dar). No se rehacen todas: quedan
+como están, con esta nota como advertencia de su precisión real.
+
+Antes de fijar este método se comprobó de dónde viene la variación (mismas
+10 corridas de arriba): el promedio de las primeras 5 (4 894 ms) y el de las
+últimas 5 (4 890 ms) son prácticamente iguales — **no hay una tendencia de
+calentamiento**, la variación es dispersión aleatoria, no una deriva
+direccional. Por eso no hace falta enfriar el dispositivo entre corridas ni
+aleatorizar el orden de los casos: corridas seguidas del mismo caso, en el
+orden que sea, son suficientes. La dispersión, además, se concentra casi
+toda en el decode (rango de 561 ms en esas 10 corridas) y no en el encode
+(rango de 34 ms): el ruido viene de decodificar/convertir fotogramas
+(`MediaCodec`, `ImageReader`, conversión YUV→RGB), no del codificador
+nativo.
+
 ## Fase 0 — validación del ContentProvider
 
 Objetivo: confirmar que WhatsApp acepta un pack publicado por el
@@ -1213,3 +1242,324 @@ esta medición (a diferencia del video, donde el riesgo real solo aparecía
 con contenido real): acá el riesgo era de formato/orientación/recorte, no
 de cuánto tarda comprimir, y eso se ejercita igual de bien con una imagen
 sintética con EXIF real escrito y releído por el framework.
+
+## Fase 3 — ¿subir el fps de prefiltro de video por encima del piso de ADR-0007?
+
+**Esta sección es la primera pasada, con corridas únicas (antes de fijar el
+método de la sección "Método de medición de tiempo" de más arriba). La
+tabla y las conclusiones quedan como contexto de cómo surgió la pregunta;
+la remedición con 5 corridas por caso, mediana y rango — con una conclusión
+más sólida y en un punto más matizada — está en la sección siguiente,
+"remedición con el método de 5 corridas".**
+
+Motivo: con 5 fps (ADR-0009) el resultado se ve entrecortado. La
+observación que disparó la pregunta fue el clip de 10 s (máximo de RF-06):
+292 538 bytes, 58.5% del límite de RF-10, en una sola pasada sin bisección
+— parece sobrar margen. La pregunta a medir: ¿ese margen de *tamaño*
+también es margen de *tiempo* disponible para subir el fps, y hasta
+cuánto, en clips de 2, 3 y 5 s (no solo el máximo de 10 s)?
+
+Mismo dispositivo y mismo video real que todas las mediciones anteriores de
+esta fase (Xiaomi Redmi Note 14 `24117RN76L`, Android 14 (API 34),
+arm64-v8a, `Recording_20260919_191641.mp4`, 37 687 ms). Instalación y
+`am instrument` manuales en vez de `./gradlew connectedAndroidTest`: ese
+task desinstala la app al terminar cada corrida, y con ella el directorio
+externo donde vive el video de prueba — instalar una vez con `adb install`
+y correr con `adb shell am instrument` evita reinstalar entre cada valor de
+fps probado.
+
+### Resultado: no hay valor por encima de 5 fps que no cueste algo
+
+| fps prefiltro | Clip | Fotogramas | Decode | Encode (intentos) | Total | vs. tramo | Tamaño (% de RF-10) |
+|---|---|---|---|---|---|---|---|
+| 5 (actual) | 2 s | 10 | 1 702 ms | 375 ms (1) | **2 077 ms** | ≤5000: cumple | 22 872 B (4.6%) |
+| 5 (actual) | 3 s | 15 | 2 173 ms | 880 ms (1) | **3 053 ms** | ≤5000: cumple | 91 360 B (18.3%) |
+| 5 (actual) | 5 s | 25 | 3 619 ms | 1 472 ms (1) | **5 091 ms** | ≤5000: **no cumple, por 91 ms** | 120 500 B (24.1%) |
+| 5 (actual) | 10 s (máx.) | 50 | 6 045 ms | 3 193 ms (1) | **9 238 ms** | ≤20000: cumple (46.2%) | 292 538 B (58.5%) |
+| 6 | 2 s | 12 | 1 790 ms | 464 ms (1) | 2 254 ms | ≤5000: cumple | 35 044 B (7.0%) |
+| 6 | 3 s | 18 | 2 200 ms | 995 ms (1) | 3 195 ms | ≤5000: cumple | 108 102 B (21.6%) |
+| 6 | 5 s | 30 | 3 829 ms | 1 767 ms (1) | **5 596 ms** | ≤5000: **no cumple, por 596 ms** | 143 872 B (28.8%) |
+| 6 | 10 s (máx.) | 60 | 6 466 ms | 3 833 ms (1) | 10 299 ms | ≤20000: cumple (51.5%) | 350 794 B (70.2%) |
+| 7 | 2 s | 14 | 2 055 ms | 511 ms (1) | 2 566 ms | ≤5000: cumple | 43 526 B (8.7%) |
+| 7 | 3 s | 21 | 2 724 ms | 1 048 ms (1) | 3 772 ms | ≤5000: cumple | 117 166 B (23.4%) |
+| 7 | 5 s | 35 | 3 952 ms | 1 758 ms (1) | **5 710 ms** | ≤5000: **no cumple, por 710 ms** | 161 346 B (32.3%) |
+| 7 | 10 s (máx.) | 70 | 7 134 ms | 4 087 ms (1) | 11 221 ms | ≤20000: cumple (56.1%) | 395 458 B (79.1%) |
+| 10 | 2 s | 20 | 2 417 ms | 669 ms (1) | 3 086 ms | ≤5000: cumple | 59 748 B (11.9%) |
+| 10 | 3 s | 30 | 3 158 ms | 1 533 ms (1) | 4 691 ms | ≤5000: cumple, sin margen (6.2%) | 152 600 B (30.5%) |
+| 10 | 5 s | 50 | 4 943 ms | 2 344 ms (1) | **7 287 ms** | ≤5000: no cumple; pasa al tramo de 20000 | 194 246 B (38.8%) |
+| 10 | 10 s (máx.) | 100→96 | 9 031 ms | 16 338 ms (**3**, con reducción de fotogramas y bisección de calidad) | **25 369 ms** | ≤20000: **no cumple, por 5 369 ms (26.8% sobre el tope)** | 350 658 B (70.1%, quality=37) |
+
+Trazas completas en `video_import_trace*.txt` de cada corrida (no
+conservadas en el repo, mismo criterio que siempre: son archivos de
+dispositivo, esta tabla es el registro).
+
+### Hallazgo 1 (el que cambia la decisión): el tramo de 5 s de RNF-08 ya está al límite a 5 fps, no hay margen para subir
+
+**No es un efecto de subir el fps: pasa hoy, con el valor ya aceptado en
+ADR-0009.** Cuatro corridas seguidas del clip de 5 s a 5 fps, sin tocar
+nada entre una y otra:
+
+| Corrida | Total |
+|---|---|
+| 1 | 5 091 ms — **no cumple** |
+| 2 | 4 812 ms — cumple, 188 ms de margen |
+| 3 | 5 224 ms — **no cumple** |
+| 4 | 4 572 ms — cumple, 428 ms de margen |
+
+El resultado cambia de lado de la línea de 5 000 ms de una corrida a la
+siguiente, sin ningún cambio de código entre medio — la variación normal
+del dispositivo (~650 ms de punta a punta en esta muestra) es más grande
+que cualquier margen que ADR-0009 haya medido nunca para este caso
+(361 ms, la única corrida que se registró en su momento). El tramo rápido
+de RNF-08 para un clip de 5 s no está cumplido de forma confiable hoy, a 5
+fps — está en el filo, y una parte de las corridas ya cae del lado
+incorrecto. Esto es anterior e independiente de la pregunta de subir el
+fps; subirlo (6 fps: 5 596 ms; 7 fps: 5 710 ms) solo empeora una situación
+que ya era frágil.
+
+### Hallazgo 2: el margen de *tamaño* que motivó la pregunta no es margen de *tiempo*
+
+El 58.5% de margen sobre RF-10 que se observó en el clip de 10 s (contenido
+real, con temporal redundancy que WebP ya explota bien entre fotogramas)
+no predice cuánto tiempo sobra: subir de 50 a 100 fotogramas casi duplica
+el tamaño resultante en la primera pasada (292 538 → 517 576 B) pero el
+codificador tarda desproporcionadamente más en encontrar un resultado
+válido (1 intento → 3, con reducción de fotogramas y bisección de calidad:
+3 193 ms → 16 338 ms de encode), y el decode+conversión escala
+aproximadamente con la cantidad de fotogramas conservados, no con el
+tamaño final. El margen de tamaño y el margen de tiempo son dos cosas
+distintas; uno no garantiza el otro.
+
+### Hallazgo 3: el margen de *tiempo* real está en el tramo de 20 s (clips largos), no en el de 5 s
+
+El clip que de hecho generó la queja de "se ve entrecortado" fue el de 10
+s, y ese es precisamente el que más margen de tiempo tiene frente a su
+propio tramo (46.2% usado a 5 fps, 56.1% a 7 fps — cómodo incluso subiendo
+el fps). El problema no es que no haya margen para mejorar la fluidez: es
+que el margen está del lado de los clips largos (tramo de 20 s), no del
+lado de los cortos (tramo de 5 s, ya sin margen).
+
+### Conclusión de esta medición
+
+No hay un único valor de fps de prefiltro, por encima de 5, que sirva para
+todo el rango de duraciones de RF-06 sin costar algo: cualquier valor
+mayor a 5 empeora (o directamente rompe) el cumplimiento del tramo de 5 000
+ms para clips de hasta 5 s, que ya está al límite sin margen hoy. El
+margen real para subir el fps y mejorar la fluidez está del lado de los
+clips más largos, que se miden contra el tramo de 20 000 ms — ahí sí hay
+espacio confirmado (7 fps deja 56.1% de margen incluso en el clip de 10 s).
+Esto apunta a un prefiltro dependiente de la duración del clip (fps más
+bajo para proteger el tramo ajustado de 5 s, más alto para el tramo de 20 s
+donde sobra tiempo), no a reemplazar un valor fijo por otro — decisión que
+queda para ADR-0011 junto con quien lea esta medición.
+
+## Fase 3 — remedición con el método de 5 corridas
+
+Mismo dispositivo, mismo video real, mismo procedimiento de instalación
+manual (`adb install` + `adb shell am instrument`, no
+`connectedAndroidTest`) que la sección anterior. Esta vez cada celda
+(fps × duración) es 5 corridas seguidas sin tocar código entre medio (10
+para 5 fps/5 s, reusando la comprobación de deriva de la sección de método
+de arriba), reportando mediana y rango. Clips de 3, 5 y 10 s — se dejó 2 s
+fuera de esta ronda: en la primera pasada nunca estuvo cerca de ningún
+límite en ningún fps probado.
+
+| fps prefiltro | Clip | n | Mediana | Rango | vs. tramo (con el peor caso del rango) |
+|---|---|---|---|---|---|
+| 5 (actual) | 3 s | 5 | 3 370 ms | 3 306–3 429 | ≤5000: cumple con margen amplio (peor caso 31.4% de margen) |
+| 5 (actual) | 5 s | 10 | 4 923 ms | 4 563–5 126 | ≤5000: **no confiable — el rango cruza la línea** |
+| 5 (actual) | 10 s (máx.) | 5 | 9 407 ms | 9 195–9 440 | ≤20000: cumple con margen amplio (peor caso 52.8% de margen) |
+| 7 | 3 s | 5 | 3 831 ms | 3 469–4 120 | ≤5000: cumple (peor caso 17.6% de margen) |
+| 7 | 5 s | 5 | 5 922 ms | 5 606–6 064 | ≤5000: **no cumple en ninguna corrida** (pasa entero al tramo de 20000, con margen: 69.7% peor caso) |
+| 7 | 10 s (máx.) | 5 | 11 760 ms | 11 629–11 967 | ≤20000: cumple con margen amplio (peor caso 40.2% de margen) |
+| 10 | 3 s | 5 | 4 885 ms | 4 783–5 028 | ≤5000: **no confiable — el rango cruza la línea** (antes, a 5 y 7 fps, el clip de 3 s nunca se acercó al límite) |
+| 10 | 5 s | 5 | 7 552 ms | 7 411–7 642 | ≤5000: no cumple en ninguna corrida; pasa al tramo de 20000 con margen (61.8% peor caso) |
+| 10 | 10 s (máx.) | 5 | 25 947 ms | 25 645–28 913 | ≤20000: **no cumple en ninguna corrida** (peor caso 44.6% *sobre* el tope) |
+
+### Qué cambia frente a la primera pasada (corridas únicas)
+
+La conclusión general se mantiene, pero con dos matices que la primera
+pasada, con una sola corrida por celda, no podía mostrar:
+
+1. **El tramo de 5 s ya era frágil a 5 fps sin que hiciera falta cambiar
+   nada** (rango 4 563–5 126 ms, cruza la línea de 5 000 ms) — esto ya
+   estaba documentado en la sección de método, se repite acá por ser parte
+   de esta tabla.
+2. **A 10 fps, hasta el clip de 3 s deja de ser seguro** (rango
+   4 783–5 028 ms, también cruza la línea). En la primera pasada (una sola
+   corrida, 4 691 ms) parecía holgado — "cumple, sin margen (6.2%)" decía
+   la nota original. Con 5 corridas, el peor caso de esa muestra (5 028 ms)
+   ya está del lado incorrecto. Esto no se veía venir con un solo dato: la
+   dispersión real (≈250 ms de rango en este caso) es más grande que el
+   margen que una corrida sola había sugerido.
+3. **El clip de 10 s a 10 fps no es un caso límite, es una falla
+   consistente y más severa de lo que la primera corrida (25 369 ms) ya
+   mostraba**: las 5 corridas dan 25 645–28 913 ms, siempre por encima del
+   tope de 20 000 ms, con hasta 44.6% de sobrepaso — y con más dispersión
+   que ningún otro caso medido (3 268 ms de rango), consistente con que acá
+   el codificador necesita varios intentos de bisección (ver la traza de la
+   primera pasada: 3 intentos) y cuántos hagan falta puede variar de corrida
+   a corrida.
+
+### Conclusión (reemplaza la de la primera pasada)
+
+Con datos de 5 corridas por celda en vez de una, la conclusión no cambia de
+signo pero se vuelve más severa: **ningún valor de fps fijo, ni siquiera el
+que ya está en producción (5), sostiene con confiabilidad el tramo de 5 000
+ms para todo el rango de clips que debería cubrir (hasta 5 s).** Subir el
+fps no solo no arregla eso — reduce todavía más el margen del clip de 3 s,
+que a 5 y 7 fps era sólido y a 10 fps ya se vuelve frágil también.
+
+El margen real, confirmado ahora con rango y no con un número suelto, sigue
+estando del lado de los clips largos: a 7 fps, el clip de 10 s tiene 40.2%
+de margen en su peor caso frente al tramo de 20 000 ms — ese es el único
+lado de la tabla con espacio genuino para mejorar la fluidez sin arriesgar
+ningún tramo. 10 fps ya no es una opción en ningún lado de la tabla: rompe
+el tramo de 5 s (clips de 3 y 5 s) y también el de 20 s (clip de 10 s, la
+falla más severa de toda esta medición).
+
+Esto no decide todavía qué hacer con el tramo de 5 s en sí (ya frágil a 5
+fps, antes de esta pregunta) — esa es una discusión aparte, sobre RNF-08 o
+sobre el costo del decode, no sobre el fps de prefiltro. Sobre el fps de
+prefiltro específicamente: la única dirección con evidencia de margen real
+es subirlo solo para clips que ya caen en el tramo de 20 000 ms, dejando
+el de 5 fps sin tocar para todo lo demás.
+
+## Fase 3 — desglose del decode: cuánto es conversión YUV→RGB (ADR-0011)
+
+Antes de decidir nada de fps, `VideoFrameDecoder` se instrumenta para
+acumular por separado cuánto de `decode` se va en
+`acquireImageWithRetry` (esperar el buffer del `ImageReader`) y cuánto en
+`YuvFrameConverter.toSquareBitmap` (la conversión YUV→RGB en sí). Mismo
+dispositivo, mismo video real, 5 fps (sin tocar), 5 corridas por duración
+(método fijado más arriba):
+
+| Clip | Decode (mediana, rango) | Conversión (mediana, rango) | % del decode | Espera `ImageReader` |
+|---|---|---|---|---|
+| 3 s | 2 194 ms [2 028–2 473] | 1 187 ms [1 137–1 222] | **54.1%** | ~0 ms |
+| 5 s | 3 342 ms [3 188–3 644] | 1 962 ms [1 863–2 034] | **58.7%** | ~0 ms |
+| 10 s | 5 816 ms [5 711–5 913] | 3 684 ms [3 672–3 736] | **63.3%** | ~0 ms |
+
+La conversión es la mayoría del decode, y esa mayoría crece con la
+duración — justifica moverla a C vía JNI (ADR-0011, módulo `:yuv` nuevo).
+Detalle completo del razonamiento en el propio ADR-0011.
+
+## Fase 3 — confirmación: decode con conversión YUV→RGB nativa (ADR-0011 implementado)
+
+Mismo dispositivo, mismo video real, 5 fps (sin tocar todavía), mismo
+método (5 corridas, mediana y rango), después de mover
+`YuvFrameConverter` a `NativeYuvConverter` (`:yuv`, C vía JNI). Validado
+antes con `YuvConversionParityTest`: la salida nativa coincide píxel a
+píxel con la referencia en Kotlin sobre los mismos buffers sintéticos, así
+que esta comparación de tiempos es sobre el mismo resultado, no sobre uno
+distinto que además sea más rápido.
+
+**Hallazgo de método, aparte del resultado en sí:** las dos primeras
+corridas de esta medición (5 s, corridas 4 y 5) salieron muy por encima de
+las tres anteriores (11 532 ms y 9 515 ms contra ~4 200 ms) — no ruido
+normal, una anomalía real. `adb shell dumpsys power` mostró
+`mWakefulness=Dozing`: el teléfono había entrado en modo Doze a mitad de la
+corrida (pantalla apagada, tiempo sin tocarlo), y Android aplica
+limitaciones de CPU/planificación en ese estado. Se descartaron esas dos
+corridas, se despertó el dispositivo y se fijó `adb shell svc power stayon
+usb` (no dormir mientras carga por USB) antes de remedir 5 s y 10 s desde
+cero. **Doze es ahora parte del método de medición: cualquier corrida de
+más de unos pocos segundos debe hacerse con el dispositivo despierto y sin
+temporizador de apagado de pantalla activo, no solo sin recalentamiento.**
+
+| Clip | Decode (mediana, rango) | Conversión (mediana, rango) | % del decode | Total (mediana, rango) | vs. antes (Kotlin) |
+|---|---|---|---|---|---|
+| 3 s | 1 811 ms [1 746–1 976] | 413 ms [400–416] | 22.8% | **2 795 ms [2 728–2 962]** | 3 370→2 795 ms, **17.1% más rápido**; conversión 2.87× más rápida |
+| 5 s | 1 831 ms [1 728–2 010] | 559 ms [532–593] | 30.5% | **3 321 ms [3 205–3 479]** | 4 923→3 321 ms, **32.5% más rápido**; conversión 3.51× más rápida |
+| 10 s (máx.) | 3 468 ms [3 131–4 769] | 1 227 ms [1 124–1 978] | 35.4% | **6 706 ms [6 326–7 972]** | 9 407→6 706 ms, **28.7% más rápido**; conversión 3.00× más rápida |
+
+### Conclusión
+
+La conversión nativa cumple lo que estimaba ADR-0011 ("varias veces, no un
+porcentaje marginal"): 2.87×–3.51× más rápida, y el total decode+encode
+baja 17–33% según la duración, sin cambiar el resultado (paridad de píxel
+verificada). **Efecto colateral importante, no buscado a propósito: el
+tramo de 5 s de RNF-08, que estaba al límite sin margen confiable a 5 fps
+con la conversión en Kotlin (4 563–5 126 ms, cruzaba la línea de 5 000 ms),
+ahora cumple con margen real (3 205–3 479 ms, 30.4% de margen en el peor
+caso)** — el problema de fragilidad que motivó toda esta investigación
+queda resuelto sin tocar el fps, resolviendo directamente el cuello de
+botella real (el costo de convertir cada fotograma) en vez de sortearlo
+con un valor de fps distinto para cada rango de duración.
+
+Con el decode más barato, la pregunta de si subir el fps de prefiltro
+vuelve a tener sentido explorar — con margen real de sobra en las tres
+duraciones medidas (peor caso: 40.8% en 3 s, 30.4% en 5 s, 60.1% en 10 s),
+pero todavía sin medir a un fps más alto. Queda para la próxima medición,
+no para esta.
+
+## Fase 3 — fps de prefiltro con conversión nativa: 7, 8, 9, 10 y 15 (ADR-0012)
+
+Mismo dispositivo, mismo video real, método de 5 corridas (mediana, rango).
+Dispositivo despierto durante toda la corrida (`adb shell svc power stayon
+usb`, ver el hallazgo de Doze más arriba). Criterio: el **peor caso** de
+cada rango debe cumplir el tramo correspondiente (≤5 000 ms para 3 y 5 s,
+≤20 000 ms para 10 s), no la mediana — pedido explícito antes de esta
+corrida.
+
+| fps | Clip | Total: mediana [rango] | Tamaño | Intentos |
+|---|---|---|---|---|
+| 7 | 3 s | 2 653 [2 602–2 744] | 117 166 B | 1 |
+| 7 | 5 s | 4 016 [3 745–4 119] | 161 346 B | 1 |
+| 7 | 10 s | 8 111 [7 955–8 496] | 395 458 B | 1 |
+| 8 | 3 s | 2 810 [2 625–2 947] | 122 308 B | 1 |
+| 8 | 5 s | 4 340 [4 226–4 398] | 156 378 B | 1 |
+| 8 | 10 s | 17 509 [17 293–17 589] | 408 822 B | 2 |
+| 9 | 3 s | 3 105 [2 963–3 231] | 133 916 B | 1 |
+| 9 | 5 s | 4 895 [4 562–6 436] | 173 516 B | 1 |
+| 9 | 10 s | 19 384 [19 338–19 435] | 468 648 B | 2 |
+| 10 | 3 s | 3 251 [2 891–3 454] | 152 600 B | 1 |
+| 10 | 5 s | 5 045 [4 949–5 125] | 194 246 B | 1 |
+| 10 | 10 s | 21 070 [20 371–21 572] | 350 658 B | 3 |
+| 15 | 3 s | 3 961 [3 868–3 988] | 197 444 B | 1 |
+| 15 | 5 s | 6 268 [5 978–6 581] | 263 382 B | 1 |
+| 15 | 10 s | ~20 400 [20 189–20 706] | — (sin resultado, `WebpEncodeException`) | 2, sin éxito |
+
+Traza de 9 fps / 5 s, el caso que decide dónde está el techo (nótese la
+primera corrida muy por encima del resto — con el hallazgo de Doze ya
+resuelto, esta vez es dispersión real del decode, no una corrida
+contaminada, ver más abajo):
+
+```
+[01:55:20.040] TOTAL: decodeMs=3824 encodeMs=2612 totalMs=6436 outcome=exito
+[01:55:26.764] TOTAL: decodeMs=2393 encodeMs=2502 totalMs=4895 outcome=exito
+[01:55:33.629] TOTAL: decodeMs=2467 encodeMs=2792 totalMs=5259 outcome=exito
+[01:55:39.817] TOTAL: decodeMs=2472 encodeMs=2249 totalMs=4721 outcome=exito
+[01:55:45.729] TOTAL: decodeMs=2357 encodeMs=2205 totalMs=4562 outcome=exito
+```
+
+Dos de cinco (6 436 y 5 259) superan los 5 000 ms — no una corrida
+aislada, un patrón real: a 9 fps el tramo de 5 s deja de cumplirse de
+forma confiable. A 10 y 15 fps la falla es más severa y ya no admite duda
+(3 de 5 y 5 de 5 respectivamente sobre el tope; a 15 fps el clip de 10 s ni
+siquiera encuentra un resultado válido — `WebpEncodeException`, no solo
+tarda de más).
+
+**Conclusión: 8 fps es el valor más alto que cumple de forma confiable, en
+el peor caso, en las tres duraciones.** Razonamiento completo y la
+Decisión en ADR-0012.
+
+### Margen específico de este dispositivo, no una garantía general
+
+El margen que deja 8 fps en el peor caso es **12% tanto en el clip de 5 s
+como en el de 10 s** (4 398 de 5 000 ms; 17 589 de 20 000 ms) — el 3 s
+sobra más (41%), pero esos dos son los que definen el techo. Ese 12% está
+medido en un único dispositivo, el Xiaomi Redmi Note 14 de siempre. **Un
+dispositivo más lento se pasaría de alguno de los dos presupuestos con este
+mismo fps** — no es una suposición, es la lectura directa de un margen que
+ya es angosto en el único hardware medido hasta ahora.
+
+Esto no es motivo para bajar el valor: los topes de tiempo de
+`WebpAnimEncoder` (ADR-0006) siguen garantizando un resultado válido en
+cualquier dispositivo, aunque tarde más del tramo "ideal" de RNF-08 —
+degrada con margen, no con una excepción. Pero es **el primer punto a
+revisar en cuanto exista una segunda fila de dispositivo en estas
+pruebas**: si un dispositivo de gama más baja no sostiene el 12% de margen
+en los clips de 5 y 10 s, ese dato —no una repetición de esta medición en
+el mismo Redmi Note 14— es lo que debería decidir si 8 fps se sostiene
+como valor único o si hace falta reabrir esta pregunta.
