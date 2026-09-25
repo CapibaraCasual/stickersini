@@ -18,7 +18,7 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.3.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.4.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
 ### Qué funciona ya
