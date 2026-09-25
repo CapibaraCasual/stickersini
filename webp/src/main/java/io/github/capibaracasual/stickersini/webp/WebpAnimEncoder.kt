@@ -6,6 +6,15 @@ import kotlin.math.ceil
 const val ANIMATED_WEBP_TARGET_SIZE_BYTES = 500_000
 
 /**
+ * RF-11: un WebP estático no debe pesar más de 100 KB. Un sticker estático
+ * es una animación de un solo fotograma: se codifica con el mismo
+ * [WebpAnimEncoder], pasando `targetSizeBytes = STATIC_WEBP_TARGET_SIZE_BYTES`
+ * y una lista de un elemento, en vez de con un codificador aparte. Ver el
+ * KDoc de [WebpAnimEncoder] para el razonamiento completo.
+ */
+const val STATIC_WEBP_TARGET_SIZE_BYTES = 100_000
+
+/**
  * Calidad de la primera pasada, sin bisección: medida en ADR-0006 como
  * suficiente para contenido representativo (59 672 de 500 000 bytes). No
  * es un valor a ajustar sin repetir esa medición.
@@ -76,6 +85,25 @@ private const val UPWARD_SEARCH_MAX_OCCUPANCY_FRACTION = 0.5
  * No decide de dónde salen los fotogramas ni cuántos hay: eso es
  * responsabilidad de quien llame (editor, captura de pantalla), fuera del
  * alcance de esta fase.
+ *
+ * **También codifica stickers estáticos (RF-11), no solo animados (RF-10):
+ * un sticker estático es una animación de un solo fotograma**, codificada
+ * con esta misma clase pasando `frames` de tamaño 1 y `targetSizeBytes =
+ * [STATIC_WEBP_TARGET_SIZE_BYTES]`, en vez de con un codificador separado
+ * (ADR-0002 ya fija libwebp como la única vía de codificación, no
+ * `Bitmap.compress`). La razón de no tener dos codificadores es doble:
+ * primero, con dos rutas de codificación habría dos comportamientos
+ * distintos frente al límite de tamaño — esta clase ya resuelve ese ajuste
+ * una sola vez (fases 1 a 4 de este KDoc), y duplicarlo para el caso
+ * estático es duplicar una fuente de bugs, no ahorrar trabajo. Segundo,
+ * RF-12 ("el sistema debe ajustar automáticamente calidad y fps hasta
+ * cumplir RF-10 y RF-11") describe un solo comportamiento para ambos
+ * formatos: si el estático tuviera su propio codificador, RF-12 se
+ * cumpliría en un formato y no en el otro salvo que alguien se acuerde de
+ * implementarlo dos veces. El costo de contenedor de `WebPAnimEncoder`
+ * frente a un WebP estático "de verdad" (`Bitmap.compress`) se midió antes
+ * de tomar esta decisión — ver `docs/desarrollo/pruebas.md`, Fase 2
+ * (RF-03) — y resultó despreciable frente al límite de 100 KB de RF-11.
  *
  * [singleShotEncoder] es sustituible en los tests para probar el ajuste sin
  * tocar la librería nativa; en la app real es [NativeWebpEncoder].
