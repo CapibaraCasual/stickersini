@@ -1,7 +1,6 @@
 package io.github.capibaracasual.stickersini.media
 
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.media.Image
 
 /**
@@ -30,15 +29,16 @@ import android.media.Image
  * centro, corresponde siempre al mismo cuadrado centrado en la imagen de
  * origen (incluida su definición de fila/columna) — rotar alrededor del
  * centro no mueve el centro, y un giro de múltiplo de 90° conserva la
- * forma cuadrada. Por eso [rotate] sigue aplicándose después del recorte,
- * sobre el cuadrado ya chico, sin cambiar qué píxeles de origen hacían
- * falta.
+ * forma cuadrada. Por eso [rotateSquareBitmap] sigue aplicándose después
+ * del recorte, sobre el cuadrado ya chico, sin cambiar qué píxeles de
+ * origen hacían falta. El cálculo del recorte en sí vive en
+ * [CenterSquareCrop], compartido con [ImageFrameDecoder].
  */
 internal object YuvFrameConverter {
 
     fun toSquareBitmap(image: Image, rotationDegrees: Int, targetSize: Int): Bitmap {
         val cropped = yuv420CenterSquareToArgb(image)
-        val rotated = if (rotationDegrees % 360 != 0) rotate(cropped, rotationDegrees) else cropped
+        val rotated = if (rotationDegrees % 360 != 0) rotateSquareBitmap(cropped, rotationDegrees) else cropped
         return if (rotated.width == targetSize) {
             rotated
         } else {
@@ -57,11 +57,10 @@ internal object YuvFrameConverter {
      * `width × height`.
      */
     private fun yuv420CenterSquareToArgb(image: Image): Bitmap {
-        val width = image.width
-        val height = image.height
-        val size = minOf(width, height)
-        val xOffset = (width - size) / 2
-        val yOffset = (height - size) / 2
+        val crop = CenterSquareCrop.of(image.width, image.height)
+        val size = crop.size
+        val xOffset = crop.xOffset
+        val yOffset = crop.yOffset
 
         val yPlane = image.planes[0]
         val uPlane = image.planes[1]
@@ -100,10 +99,5 @@ internal object YuvFrameConverter {
             }
         }
         return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
-    }
-
-    private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
-        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, /* filter = */ true)
     }
 }
