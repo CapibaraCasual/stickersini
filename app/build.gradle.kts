@@ -38,9 +38,11 @@ android {
 
 dependencies {
     implementation(project(":webp"))
+    implementation(project(":yuv"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.kotlinx.coroutines.android)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

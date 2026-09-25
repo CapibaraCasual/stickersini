@@ -27,6 +27,34 @@
           "accessibility_text": "Sticker de prueba, cuadrado azul"
         }
       ]
+    },
+    {
+      "identifier": "sticker_pack_semilla_animado",
+      "name": "Stickersini animado",
+      "publisher": "Stickersini",
+      "tray_image_file": "tray.png",
+      "publisher_email": "",
+      "publisher_website": "",
+      "privacy_policy_website": "",
+      "license_agreement_website": "",
+      "animated_pack": true,
+      "stickers": [
+        {
+          "image_file": "sticker_1.webp",
+          "emojis": ["🟥"],
+          "accessibility_text": "Sticker de prueba animado, cuadrado rojo"
+        },
+        {
+          "image_file": "sticker_2.webp",
+          "emojis": ["🟩"],
+          "accessibility_text": "Sticker de prueba animado, cuadrado verde"
+        },
+        {
+          "image_file": "sticker_3.webp",
+          "emojis": ["🟦"],
+          "accessibility_text": "Sticker de prueba animado, cuadrado azul"
+        }
+      ]
     }
   ]
 }

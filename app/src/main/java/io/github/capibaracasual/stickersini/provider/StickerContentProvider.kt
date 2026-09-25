@@ -7,27 +7,31 @@ import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
-import io.github.capibaracasual.stickersini.stickers.data.StickerPackAssetRepository
+import android.os.ParcelFileDescriptor
+import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
 import io.github.capibaracasual.stickersini.stickers.domain.StickerPack
 import java.io.FileNotFoundException
 import java.io.IOException
 
 /**
  * Cumple el contrato WAStickerApps (RF-19): expone los packs y sus stickers
- * como cursor de solo lectura y sirve los bytes de cada asset desde
- * `assets/`. Es el Ãºnico punto de contacto entre esta aplicaciÃ³n y WhatsApp.
+ * como cursor de solo lectura y sirve los bytes de cada sticker, ya sea
+ * desde `assets/` (contenido base de un pack semilla) o desde
+ * almacenamiento interno (stickers que el usuario agregó después, ver
+ * [StickerPackRepository] y ADR-0010). Es el único punto de contacto entre
+ * esta aplicación y WhatsApp.
  */
 class StickerContentProvider : ContentProvider() {
 
     private lateinit var authority: String
     private lateinit var matcher: UriMatcher
-    private lateinit var repository: StickerPackAssetRepository
+    private lateinit var repository: StickerPackRepository
 
     override fun onCreate(): Boolean {
         val context = context ?: return false
         authority = WaStickerContract.authority(context)
         matcher = buildMatcher(authority)
-        repository = StickerPackAssetRepository(context)
+        repository = StickerPackRepository(context)
         return true
     }
 
@@ -60,8 +64,14 @@ class StickerContentProvider : ContentProvider() {
         val identifier = segments[1]
         val fileName = segments[2]
         val pack = repository.getPack(identifier) ?: throw FileNotFoundException("Pack desconocido: $identifier")
-        val isKnownAsset = fileName == pack.trayImageFileName || pack.stickers.any { it.imageFileName == fileName }
-        if (!isKnownAsset) throw FileNotFoundException("Archivo no autorizado: $identifier/$fileName")
+        val isKnownFile = fileName == pack.trayImageFileName || pack.stickers.any { it.imageFileName == fileName }
+        if (!isKnownFile) throw FileNotFoundException("Archivo no autorizado: $identifier/$fileName")
+
+        if (repository.isUserAddedFile(identifier, fileName)) {
+            val file = repository.userStickerFile(identifier, fileName)
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            return AssetFileDescriptor(pfd, 0, file.length())
+        }
         return try {
             contextOrThrow().assets.openFd("$identifier/$fileName")
         } catch (error: IOException) {
@@ -69,14 +79,18 @@ class StickerContentProvider : ContentProvider() {
         }
     }
 
+    // El contrato WAStickerApps es de solo lectura desde WhatsApp: nunca llama
+    // a insert/update/delete de este ContentProvider. Los stickers nuevos se
+    // agregan dentro de la app (StickerPackRepository.addStickerToSeedPack),
+    // no a través de esta interfaz.
     override fun insert(uri: Uri, values: ContentValues?): Uri =
-        throw UnsupportedOperationException("El pack semilla es de solo lectura")
+        throw UnsupportedOperationException("StickerContentProvider no acepta escrituras externas")
 
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int =
-        throw UnsupportedOperationException("El pack semilla es de solo lectura")
+        throw UnsupportedOperationException("StickerContentProvider no acepta escrituras externas")
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int =
-        throw UnsupportedOperationException("El pack semilla es de solo lectura")
+        throw UnsupportedOperationException("StickerContentProvider no acepta escrituras externas")
 
     private fun contextOrThrow() =
         context ?: throw FileNotFoundException("Provider sin contexto")
@@ -96,7 +110,11 @@ class StickerContentProvider : ContentProvider() {
                     pack.publisherWebsite,
                     pack.privacyPolicyWebsite,
                     pack.licenseAgreementWebsite,
-                    "1",
+                    // RF-22: cambia cada vez que se agrega un sticker, para que
+                    // WhatsApp note que el contenido de un pack ya añadido
+                    // cambió y vuelva a pedirlo en vez de servir su copia
+                    // cacheada.
+                    pack.stickers.size.toString(),
                     0,
                     if (pack.isAnimatedPack) 1 else 0,
                 ),

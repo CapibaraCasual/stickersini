@@ -28,10 +28,11 @@ import androidx.compose.ui.unit.dp
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.provider.WaStickerContract
 import io.github.capibaracasual.stickersini.provider.WhatsAppStickerIntent
+import io.github.capibaracasual.stickersini.stickers.domain.SeedPacks
 import io.github.capibaracasual.stickersini.ui.theme.StickersiniTheme
 
-private const val SEED_PACK_IDENTIFIER = "sticker_pack_semilla"
-private const val SEED_PACK_NAME = "Stickersini"
+private const val SEED_PACK_IDENTIFIER = SeedPacks.STATIC_IDENTIFIER
+private const val SEED_PACK_NAME = SeedPacks.STATIC_NAME
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,7 +40,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             StickersiniTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AddSeedPackScreen()
+                    var showCreateScreen by remember { mutableStateOf(false) }
+                    if (showCreateScreen) {
+                        CreateStickerScreen(onBack = { showCreateScreen = false })
+                    } else {
+                        AddSeedPackScreen(onCreateSticker = { showCreateScreen = true })
+                    }
                 }
             }
         }
@@ -47,7 +53,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AddSeedPackScreen() {
+private fun AddSeedPackScreen(onCreateSticker: () -> Unit) {
     val context = LocalContext.current
     var resultMessage by remember { mutableStateOf<String?>(null) }
 
@@ -84,6 +90,10 @@ private fun AddSeedPackScreen() {
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Button(onClick = onCreateSticker) {
+                Text(text = stringResource(R.string.create_sticker_button))
+            }
+
             Text(text = stringResource(R.string.add_pack_title), style = MaterialTheme.typography.titleLarge)
             Text(text = stringResource(R.string.add_pack_description), style = MaterialTheme.typography.bodyMedium)
 

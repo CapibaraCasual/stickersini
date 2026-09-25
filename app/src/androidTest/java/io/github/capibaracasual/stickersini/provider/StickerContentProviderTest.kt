@@ -21,21 +21,31 @@ class StickerContentProviderTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val authority = WaStickerContract.authority(context)
 
+    /**
+     * Dos packs semilla desde ADR-0004/ADR-0010 (uno estático, uno animado):
+     * RF-18 prohíbe mezclar ambos tipos en un mismo pack, así que hace
+     * falta uno de cada uno para que el primer sticker de cualquier tipo
+     * que agregue el usuario tenga un pack ya válido a mano (ver
+     * [io.github.capibaracasual.stickersini.stickers.domain.SeedPacks]).
+     */
     @Test
-    fun metadata_devuelveElPackSemillaConSusTresStickers() {
+    fun metadata_devuelveLosDosPacksSemilla() {
         val metadataUri = Uri.parse("content://$authority/${WaStickerContract.Path.METADATA}")
         context.contentResolver.query(metadataUri, null, null, null, null).use { cursor ->
             assertNotNull("La consulta a /metadata no debe devolver null", cursor)
             checkNotNull(cursor)
-            assertEquals(1, cursor.count)
-            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.count)
 
             val identifierIndex = cursor.getColumnIndexOrThrow(WaStickerContract.PackColumns.IDENTIFIER)
-            val identifier = cursor.getString(identifierIndex)
-            assertEquals("sticker_pack_semilla", identifier)
-
             val animatedIndex = cursor.getColumnIndexOrThrow(WaStickerContract.PackColumns.ANIMATED_PACK)
+
+            assertTrue(cursor.moveToFirst())
+            assertEquals("sticker_pack_semilla", cursor.getString(identifierIndex))
             assertEquals(0, cursor.getInt(animatedIndex))
+
+            assertTrue(cursor.moveToNext())
+            assertEquals("sticker_pack_semilla_animado", cursor.getString(identifierIndex))
+            assertEquals(1, cursor.getInt(animatedIndex))
         }
 
         val stickersUri = Uri.parse("content://$authority/${WaStickerContract.Path.STICKERS}/sticker_pack_semilla")
@@ -53,12 +63,14 @@ class StickerContentProviderTest {
     @Test
     fun stickersAsset_abreLosBytesDeCadaStickerYDelIconoDeBandeja() {
         val fileNames = listOf("sticker_1.webp", "sticker_2.webp", "sticker_3.webp", "tray.png")
-        for (fileName in fileNames) {
-            val assetUri = Uri.parse("content://$authority/${WaStickerContract.Path.STICKERS_ASSET}/sticker_pack_semilla/$fileName")
-            context.contentResolver.openAssetFileDescriptor(assetUri, "r").use { descriptor ->
-                assertNotNull("No se pudo abrir el asset $fileName", descriptor)
-                checkNotNull(descriptor)
-                assertTrue("$fileName deberÃ­a pesar mÃ¡s de 0 bytes", descriptor.length > 0)
+        for (identifier in listOf("sticker_pack_semilla", "sticker_pack_semilla_animado")) {
+            for (fileName in fileNames) {
+                val assetUri = Uri.parse("content://$authority/${WaStickerContract.Path.STICKERS_ASSET}/$identifier/$fileName")
+                context.contentResolver.openAssetFileDescriptor(assetUri, "r").use { descriptor ->
+                    assertNotNull("No se pudo abrir el asset $identifier/$fileName", descriptor)
+                    checkNotNull(descriptor)
+                    assertTrue("$identifier/$fileName debería pesar más de 0 bytes", descriptor.length > 0)
+                }
             }
         }
     }

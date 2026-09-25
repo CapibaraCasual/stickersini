@@ -11,4 +11,16 @@
     <string name="result_validation_error">WhatsApp rechazó el pack: %1$s</string>
     <string name="result_whatsapp_not_installed">No se encontró WhatsApp ni WhatsApp Business instalados.</string>
     <string name="result_no_activity">WhatsApp no pudo abrir el diálogo de confirmación de stickers.</string>
+
+    <string name="create_sticker_button">Crear sticker</string>
+    <string name="create_sticker_back">← Volver</string>
+    <string name="create_sticker_title">Elegí un video o una imagen</string>
+    <string name="create_sticker_pick_button">Elegir archivo</string>
+    <string name="create_sticker_error">No se pudo convertir: %1$s</string>
+    <string name="create_sticker_save_button">Guardar como sticker</string>
+    <string name="create_sticker_saved">Guardado en el pack \"%1$s\".</string>
+    <string name="create_sticker_stage_decoding_video">Decodificando video: %1$d/%2$d fotogramas</string>
+    <string name="create_sticker_stage_decoding_image">Decodificando imagen…</string>
+    <string name="create_sticker_stage_encoding">Codificando WebP (intento %1$d)…</string>
+    <string name="create_sticker_stage_saving">Guardando…</string>
 </resources>

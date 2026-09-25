@@ -119,20 +119,28 @@ class WebpAnimEncoder(
 ) {
 
     /**
+     * @param onAttempt se llama antes de cada codificación real (no antes de
+     * la de `minimize_size` final), con cuánto del presupuesto de
+     * [hardTimeLimitMs] ya se gastó — ver [EncodeAttemptProgress]. El número
+     * total de intentos no se puede anticipar (depende del contenido), pero
+     * la fracción de tiempo gastado sí es información real para mostrar
+     * avance, no un indicador indeterminado (RNF-08).
      * @throws WebpEncodeException si [frames] no cumple RF-13, o si no se
      * encontró ningún resultado dentro de [targetSizeBytes] antes de que el
      * tiempo restante dejara de alcanzar para otra codificación (RF-12).
      */
-    fun encode(frames: List<WebpFrame>): WebpEncodeResult {
+    fun encode(frames: List<WebpFrame>, onAttempt: (EncodeAttemptProgress) -> Unit = {}): WebpEncodeResult {
         if (frames.isEmpty()) {
             throw WebpEncodeException("Se necesita al menos 1 fotograma")
         }
         FrameTiming.validate(frames.map { it.durationMs })
 
-        val deadlineNanos = System.nanoTime() + hardTimeLimitMs * 1_000_000L
+        val startNanos = System.nanoTime()
+        val deadlineNanos = startNanos + hardTimeLimitMs * 1_000_000L
         var bestBytes: ByteArray? = null
         var bestQuality: Int? = null
         var bestFrames: List<WebpFrame>? = null
+        var attemptNumber = 0
 
         // Última duración medida (ms) por número de fotogramas: el mejor
         // estimador disponible para la próxima codificación con ese mismo
@@ -153,6 +161,8 @@ class WebpAnimEncoder(
         }
 
         fun attempt(candidateFrames: List<WebpFrame>, quality: Int): ByteArray {
+            attemptNumber++
+            onAttempt(EncodeAttemptProgress(attemptNumber, (System.nanoTime() - startNanos) / 1_000_000L, hardTimeLimitMs))
             val start = System.nanoTime()
             val bytes = singleShotEncoder.encode(candidateFrames, quality, minimizeSize = false)
             lastDurationMsByFrameCount[candidateFrames.size] = (System.nanoTime() - start) / 1_000_000L
