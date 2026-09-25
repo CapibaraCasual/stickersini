@@ -7,6 +7,61 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.3.0-alpha] - 2026-09-25
+
+Cierra la Fase 2 de importación de video: el pipeline decodifica un video
+existente y produce un WebP animado válido de punta a punta, y RNF-08 queda
+validado con una grabación de pantalla real, no solo con contenido
+sintético.
+
+### Añadido
+- Fase 2 (RF-02): módulo `media/` que decodifica un video existente con
+  `MediaCodec` hacia un `ImageReader` en `YUV_420_888`, convierte a RGB en
+  CPU y produce una lista de fotogramas lista para `WebpAnimEncoder`
+  (ADR-0008 — ruta CPU, confirmada en dispositivo real, sin necesitar GPU).
+  Prefiltro de fotogramas por muestreo uniforme a 5 fps antes de convertir
+  (ADR-0009 — derivado del piso de ADR-0007, no elegido aparte; medido en
+  dispositivo real con 20 fps primero, agotaba el codificador sin
+  resultado). `VideoFrameDecoder.decode` acepta un tramo (`startMs`,
+  `durationMs`) con tope de 10 s (RF-06, `ClipRange`): un tramo más largo, o
+  que se pasa del final del video, se procesa solo hasta donde alcanza, sin
+  decodificar de más; se posiciona en el keyframe anterior al inicio pedido
+  y descarta lo previo sin convertirlo. `YuvFrameConverter` recorta al
+  cuadrado central directo sobre los planos YUV de origen, sin convertir
+  primero el fotograma completo (medido: -55% de píxeles convertidos, -37%
+  de tiempo de decode en un clip de 10 s).
+- `docs/desarrollo/arquitectura.md`: primer documento de fronteras, con el
+  flujo completo de un fotograma desde el video de origen hasta el WebP
+  codificado.
+- `VideoImportPerformanceTest` (instrumentado, `:app`): mide en dispositivo
+  real decodificación + codificación de una grabación de pantalla real
+  provista por quien corre el test. Instrumentado con el mismo
+  `MeasuringEncoder` que `WebpAnimEncoderPerformanceTest` en `:webp` (vía el
+  nuevo `ProductionWebpEncoder`, público), y mide clips de 2, 3, 5 y 10 s,
+  no solo el máximo. Ver `docs/desarrollo/pruebas.md`.
+
+### Cambiado
+- RNF-08 (`docs/desarrollo/requisitos.md`, versión 1.1) precisa que el
+  tramo de 5 s aplica a clips de **hasta 5 s** de contenido representativo,
+  y el de 20 s a clips **más largos** o de alta complejidad visual. No
+  cambia lo exigido: deja escrita la distinción por duración que la
+  medición de esta fase confirma que el requisito ya hacía.
+
+### Corregido
+- `VideoImportResult.truncated` no detectaba un video más largo que el
+  tramo procesado cuando ese tramo coincidía con lo pedido (el caso común,
+  con los valores por defecto): comparaba el tramo pedido contra su propio
+  tope en vez de contra la duración real del video. Encontrado con una
+  grabación de pantalla real de 37.7 s recortada a los 10 s de RF-06.
+
+Validado en dispositivo real (Xiaomi Redmi Note 14, Android 14) con una
+grabación de pantalla real de 37.7 s (720×1600), no contenido sintético:
+clip de 3 s (la referencia del propio RNF-08), 3 163 ms, cumple el tramo de
+5 000 ms con margen; clip de 10 s (el máximo de RF-06), 9 395 ms, cae en el
+segundo tramo (≤20 000 ms) tal como el requisito prevé para el caso más
+exigente. Detalle completo, con las tres rondas de medición, en
+`docs/desarrollo/pruebas.md`.
+
 ## [0.2.0-alpha] - 2026-09-20
 
 Cierra la Fase 1: el codificador WebP funciona de punta a punta, medido en

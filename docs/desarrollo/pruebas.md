@@ -632,3 +632,501 @@ ahora con `webp/build.gradle.kts` compilando `arm64-v8a`, `armeabi-v7a`,
 (x86) queda a la mitad del límite. La nota del hueco de ABI de la medición
 anterior queda resuelta: las 4 ABI que usa Android hoy en dispositivos
 reales tienen `.so` de libwebp.
+
+## Fase 2 — importación de video
+
+Objetivo: dado un video existente, decodificarlo con `MediaCodec` y
+producir un WebP animado válido de punta a punta (ADR-0008), y medir en
+dispositivo real cuánto tarda decodificar + convertir + codificar una
+grabación de pantalla real — no el contenido sintético de la Fase 1 — para
+saber si RNF-08 se sostiene con contenido de verdad.
+
+`./gradlew :app:test` (`FrameSamplerTest`: el muestreo uniforme de
+fotogramas de ADR-0008, incluida la verificación exacta de que 90
+fotogramas de origen a 30 fps dan 60 conservados a 20 fps objetivo;
+`ClipRangeTest`: el cálculo del tramo de entrada — inicio, duración, tope de
+10 s de RF-06, truncamiento cuando el video no llega) pasa en la máquina de
+desarrollo. La conversión YUV→RGB, el posicionamiento real
+(`MediaExtractor.seekTo`) y el decodificador en sí (`VideoFrameDecoder`,
+`YuvFrameConverter`) necesitan `MediaCodec` real y solo se validan en
+dispositivo, con el procedimiento de abajo.
+
+| Fecha | Dispositivo | Android | Video usado | Qué se probó | Resultado |
+|---|---|---|---|---|---|
+| 2026-09-25 | Xiaomi Redmi Note 14 (`24117RN76L`) | Android 14 (API 34), arm64-v8a | Grabación de pantalla real, `Recording_20260919_191641.mp4` (ver características abajo) | `VideoImportPerformanceTest` completo (`decodificaYCodificaUnVideoReal` + `decodificaDesdeUnInicioArbitrario`), vía `adb push` + `connectedAndroidTest` | **No cumple RNF-08.** El decode solo (10 s de origen → 200 fotogramas) tardó 31 823 ms — ya por sí solo casi 6.4× el presupuesto de 20 000 ms del segundo tramo de RNF-08, sin contar el encoder. La codificación no llegó a producir ningún resultado válido: `WebpAnimEncoder.encode` terminó en `WebpEncodeException` (RF-12) a los ~15.8 s de haber empezado, sin bajar de 500 KB ni al mínimo de calidad. `decodificaDesdeUnInicioArbitrario` (posicionamiento con `startMs=1000`) sí pasó, en 6 185 ms. Detalle completo abajo. |
+
+### Video usado en esta medición
+
+No es contenido sintético: es una grabación de pantalla real ya existente en
+el teléfono (Xiaomi Redmi Note 14), la más reciente entre `/sdcard/DCIM/Camera/`,
+`/sdcard/Movies/` y las carpetas típicas de grabador de pantalla —
+`/sdcard/DCIM/ScreenRecorder/` no existía en este teléfono; el archivo
+apareció en `/sdcard/Movies/Recorder0/`, la carpeta del grabador de pantalla
+integrado de MIUI.
+
+| Propiedad | Valor |
+|---|---|
+| Archivo de origen | `/sdcard/Movies/Recorder0/Recording_20260919_191641.mp4` |
+| Tamaño | 25 667 796 bytes (~24.5 MB) |
+| Duración total | 37.687 s (medida por `ffprobe`; `MediaFormat.KEY_DURATION` coincide: 37 687 ms) |
+| Resolución | 720×1600 (retrato, pantalla completa del teléfono) |
+| Códec de video | H.264 |
+| Fotogramas totales (video completo) | 1322 (contados con `ffprobe -count_frames`) |
+| fps promedio (video completo) | ≈35.1 (1322 fotogramas / 37.687 s) — tasa variable de MIUI, no constante |
+| Bitrate | ~5.43 Mbps |
+| Pista de audio | Sí (AAC) — irrelevante para esta medición, `VideoFrameDecoder` no la toca |
+
+El video se copió del teléfono a la máquina de desarrollo (`adb pull`), no se
+editó, y se volvió a subir con `adb push` al nombre que espera el test
+(`stickersini_test_video.mp4`) en el `externalFilesDir` de la app — la app no
+estaba instalada todavía en este teléfono, así que hubo que instalarla
+primero (`./gradlew :app:installDebug`) para que esa carpeta existiera.
+
+### Traza completa
+
+`video_import_trace.txt` (`decodificaYCodificaUnVideoReal`):
+
+```
+[21:09:48.733] === inicio: /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini/files/stickersini_test_video.mp4 (25667796 bytes) ===
+[21:10:20.562] decode: elapsedMs=31823 sourceDurationMs=37687 truncated=false decodedFrameCount=200 framesParaEncoder=200
+[21:10:36.389] === fin ===
+```
+
+No hay línea `encode:` ni `TOTAL:`: el test no las alcanza a escribir porque
+`WebpAnimEncoder.encode()` lanzó `WebpEncodeException` antes de volver, y el
+test no captura esa excepción (se propaga y marca el test en rojo, no un
+`outcome` registrado como en `WebpAnimEncoderPerformanceTest` de la Fase 1).
+El resultado exacto, tomado del reporte de JUnit
+(`app/build/outputs/androidTest-results/connected/debug/`):
+
+```
+io.github.capibaracasual.stickersini.webp.WebpEncodeException: RF-12: no se pudo producir un WebP de 500000 bytes o menos ni bajando calidad ni reduciendo fotogramas dentro de 20000ms
+	at io.github.capibaracasual.stickersini.webp.WebpAnimEncoder.encode(WebpAnimEncoder.kt:203)
+	at io.github.capibaracasual.stickersini.media.VideoImportPerformanceTest.decodificaYCodificaUnVideoReal(VideoImportPerformanceTest.kt:84)
+```
+
+Tiempo total del método de test (JUnit): 47.625 s. Con el decode en
+31.823 s, eso deja ≈15.8 s para el intento de codificación antes de la
+excepción — un número derivado por resta, no logueado directamente, porque
+la excepción interrumpe el test antes de que se pueda medir `encodeMs` por
+separado.
+
+`video_import_seek_trace.txt` (`decodificaDesdeUnInicioArbitrario`,
+`startMs=1000, durationMs=2000` sobre el mismo video):
+
+```
+[21:10:36.502] === inicio: startMs=1000 durationMs=2000 sobre /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini/files/stickersini_test_video.mp4 ===
+[21:10:42.587] decode: elapsedMs=6084 truncated=false decodedFrameCount=36 framesParaEncoder=36 duracionTotalFramesMs=1980
+[21:10:42.588] === fin ===
+```
+
+Esta sí pasó: 36 fotogramas conservados para 1980 ms de duración total (2 s
+pedidos), sin lanzar ninguna excepción. Confirma en dispositivo real, no
+solo en `ClipRangeTest`, que `MediaExtractor.seekTo(startUs,
+SEEK_TO_PREVIOUS_SYNC)` posiciona correctamente y que el descarte de lo
+anterior a `startMs` funciona.
+
+### Lectura de estos números
+
+- **RNF-08 no se cumple, y no por poco.** El decode solo (31 823 ms) ya
+  supera los 20 000 ms del tramo de "alta complejidad visual" de RNF-08 sin
+  que el encoder llegue a correr una sola vez; ni hablar de los 5 000 ms del
+  tramo representativo. Y el encoder, con lo que el decode le entregó (200
+  fotogramas de 512×512 de contenido real), no encontró ningún resultado
+  válido dentro de su propio tope de 20 s: terminó en RF-12
+  (`WebpEncodeException`), no en un resultado degradado.
+- **200 fotogramas es una escala nunca antes probada.** Todas las
+  mediciones previas de `WebpAnimEncoder` (ADR-0006, ADR-0007) usaron 30
+  fotogramas como máximo, sobre un caso de referencia de 3 s. Acá el clip es
+  de 10 s (el tope de RF-06) y el prefiltro de 20 fps de ADR-0008 entregó
+  exactamente 200 — el cálculo es correcto (`20 × 10 = 200`, confirmado en
+  dispositivo real, no solo en `FrameSamplerTest`), pero nadie había medido
+  antes cuánto tarda `WebpAnimEncoder` con un conjunto de entrada de ese
+  tamaño. El piso de fotogramas de ADR-0007 (5 fps × 10 s = 50) también es
+  muy superior a cualquier cosa medida hasta ahora.
+- **No hay traza por intento** (esta prueba no envuelve
+  `NativeWebpEncoder` con un `MeasuringEncoder` como sí hace
+  `WebpAnimEncoderPerformanceTest` en `:webp`), así que no se puede saber
+  todavía si el problema es el tamaño de cada intento, el número de
+  intentos, o ambos — ni en qué fase de `WebpAnimEncoder` (búsqueda de
+  fotogramas, bisección de calidad, umbral del 50%, `minimize_size`) se
+  agotó el tiempo. Instrumentar eso es el paso obvio antes de decidir qué
+  cambiar, pero es un cambio de código y queda fuera del alcance de esta
+  medición.
+- **El recorte automático a cuadrado también es relevante para leer estos
+  números con cuidado:** el video es retrato (720×1600); `YuvFrameConverter`
+  recorta al cuadrado centrado más grande (720×720, el 45% de la altura
+  original) antes de escalar a 512×512. El contenido real que llegó al
+  encoder es una franja central de la pantalla, no la captura completa —
+  correcto según el alcance de esta fase (RF-07 no está implementado
+  todavía), pero relevante si se compara este resultado con expectativas
+  sobre "toda la pantalla".
+- **Hallazgo aparte, no de rendimiento: `truncated=false` en la línea
+  `decode` de arriba, con un video de 37 687 ms procesado hasta los 10 000
+  ms, se lee raro a primera vista.** No es un bug de esta corrida: con los
+  valores por defecto (`startMs=0, durationMs=10000`), `ClipRange` compara
+  el tramo procesado contra lo *pedido* (10000 ms), no contra la duración
+  *total del video* (37 687 ms), y lo pedido se cumplió exacto. El efecto
+  práctico es que, con los parámetros por defecto que usa esta fase,
+  `truncated` nunca se activa por esta vía — solo se activaría si algún
+  llamador pidiera explícitamente más de 10 s, o un tramo que el video no
+  llega a cubrir. Si la intención (RF-06) es que la futura UI pueda avisar
+  "solo se usaron los primeros 10 segundos de tu video", este campo, tal
+  como quedó definido, no sirve para eso todavía — haría falta comparar
+  contra la duración total del video, no contra lo pedido. No se toca en
+  esta medición: es un hallazgo para revisar junto con el resto, no un
+  cambio de código de esta sesión.
+
+**Actualización, mismo día:** confirmado como bug real (no una lectura
+rara nomás) y corregido — ver `ClipRange` y la fila
+`seMarcaTruncadaSiElVideoSigueDespuesDelTramoProcesado` en
+`ClipRangeTest`. El fps de prefiltro también se corrigió (ver ADR-0009). La
+sección siguiente mide de nuevo con ambos arreglos aplicados.
+
+## Fase 2 — segunda corrida: prefiltro a 5 fps (ADR-0009) y `truncated` corregido
+
+Mismo dispositivo (Redmi Note 14, Android 14, arm64-v8a) y el mismo video
+real de la corrida anterior (`Recording_20260919_191641.mp4`), sin volver a
+grabar ni tocar el archivo. Tres cambios desde la corrida anterior, todos
+documentados en ADR-0009 y en el texto de arriba:
+
+1. `VIDEO_PREFILTER_TARGET_FPS` de 20 a 5 (ADR-0009): 200 → 50 fotogramas
+   para este clip de 10 s.
+2. `ClipRange.truncated` corregido: ahora compara la duración real del
+   video contra el tramo procesado, no el tramo pedido contra su propio
+   tope.
+3. `VideoImportPerformanceTest` instrumentado con `MeasuringEncoder` (la
+   misma idea que `WebpAnimEncoderPerformanceTest` en `:webp`, expuesta vía
+   el nuevo `ProductionWebpEncoder` porque `NativeWebpEncoder` es
+   `internal` a ese módulo): ahora la traza muestra cada intento de
+   codificación por separado, y una `WebpEncodeException` ya no tumba el
+   test — se registra como `outcome` y la corrida completa queda en el
+   archivo de todas formas (mismo criterio que `:webp`: un `outcome`
+   distinto de `exito` es el dato buscado, no un fallo del test).
+
+| Fecha | Dispositivo | Android | Video usado | Qué se probó | Resultado |
+|---|---|---|---|---|---|
+| 2026-09-25 | Xiaomi Redmi Note 14 (`24117RN76L`) | Android 14 (API 34), arm64-v8a | Mismo `Recording_20260919_191641.mp4` de la corrida anterior | `VideoImportPerformanceTest`, prefiltro a 5 fps, con traza por intento | **Cumple RNF-08 (segundo tramo, ≤20 000 ms), no el de 5 000 ms.** Decode: 9 681 ms (50 fotogramas). Encode: 1 solo intento, quality=75, 292 538 bytes, 3 185 ms — sin bisección. Total: 12 866 ms. |
+
+### Traza completa
+
+`video_import_trace.txt`:
+
+```
+[21:24:17.868] === inicio: /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini/files/stickersini_test_video.mp4 (25667796 bytes) ===
+[21:24:27.558] decode: elapsedMs=9681 sourceDurationMs=37687 truncated=true decodedFrameCount=50 framesParaEncoder=50
+[21:24:30.746] intento #1: frameCount=50 quality=75 minimizeSize=false sizeBytes=292538 elapsedMs=3179
+[21:24:30.747] encode: elapsedMs=3185 outcome=exito intentos=1 sizeBytes=292538 quality=75 frameCount=50
+[21:24:30.747] TOTAL: decodeMs=9681 encodeMs=3185 totalMs=12866 outcome=exito (comparar contra RNF-08: 5000ms contenido representativo, 20000ms alta complejidad visual)
+[21:24:30.747] === fin ===
+```
+
+`truncated=true` esta vez — confirma el arreglo del bug: el video (37 687
+ms) sigue después del tramo procesado (10 000 ms).
+
+`video_import_seek_trace.txt` (`decodificaDesdeUnInicioArbitrario`,
+`startMs=1000, durationMs=2000`, sin cambios de código propios pero
+afectada por el nuevo fps y el fix de `truncated`):
+
+```
+[21:24:30.871] === inicio: startMs=1000 durationMs=2000 sobre /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini/files/stickersini_test_video.mp4 ===
+[21:24:33.217] decode: elapsedMs=2345 truncated=true decodedFrameCount=10 framesParaEncoder=10 duracionTotalFramesMs=1993
+[21:24:33.218] === fin ===
+```
+
+10 fotogramas (5 fps × 2 s, exacto) y `truncated=true` correctamente
+(el video sigue después del segundo 3).
+
+### Tabla comparativa, mismo video, antes y después de ADR-0009
+
+| | Antes (20 fps) | Después (5 fps) |
+|---|---|---|
+| Tiempo de decodificación | 31 823 ms | **9 681 ms** |
+| Tiempo de codificación | — (sin resultado) | **3 185 ms** |
+| Tiempo total | — (nunca terminó) | **12 866 ms** |
+| Fotogramas de origen (ventana de 10 s) | ~351 estimados | ~351 estimados (sin cambios: `MediaCodec` decodifica lo mismo) |
+| Fotogramas conservados tras el prefiltro | 200 | **50** |
+| Fotogramas finales (al codificador) | — | **50** (sin reducción adicional: cupo a la primera) |
+| Calidad final | — | **75** (la de partida, ADR-0006 — no hizo falta bajarla) |
+| Tamaño final | — | **292 538 bytes** (58.5% de RF-10) |
+
+### La pregunta sobre el costo del decode: ¿por fotograma convertido, o por recorrido fijo de `MediaCodec`?
+
+Bajar el prefiltro de 20 a 5 fps (200 → 50 fotogramas, una reducción de
+4×) bajó el tiempo de decode de 31 823 a 9 681 ms — una reducción de 3.29×,
+casi proporcional a la reducción de fotogramas *convertidos*. Si el costo
+dominante fuera el recorrido de `MediaCodec` por los ~351 fotogramas del
+tramo de 10 s (que no cambia entre las dos corridas: el decodificador tiene
+que decodificarlos todos igual, sin importar cuántos se conserven después,
+por las dependencias P/B), el tiempo de decode debería haber sido casi
+idéntico en ambas corridas. No lo fue.
+
+Ajustando un modelo lineal simple (`tiempo = fijo + costoPorFotograma ×
+fotogramasConvertidos`) con los dos puntos medidos:
+
+```
+31823 = fijo + costoPorFotograma × 200
+ 9681 = fijo + costoPorFotograma × 50
+```
+
+Resolviendo: `costoPorFotograma ≈ 147.6 ms`, `fijo ≈ 2301 ms`.
+
+**Lectura: de los 9 681 ms de la corrida de 50 fotogramas, ~2 301 ms
+(24%) son costo fijo (abrir el extractor, posicionar, decodificar los ~351
+fotogramas del tramo sin convertir los descartados) y ~7 380 ms (76%) son
+la conversión de los 50 fotogramas que sí se guardan — unos 148 ms por
+fotograma convertido.** Esto responde la pregunta con datos, no con
+suposición: **el costo es predominantemente por fotograma convertido
+(YUV→RGB + recorte + escalado en CPU), no por el recorrido fijo de
+`MediaCodec`.** La ruta CPU de ADR-0008 queda validada en el sentido de que
+"menos fotogramas convertidos" sí ayuda casi proporcionalmente — pero el
+costo por fotograma (148 ms para convertir un cuadro de este video) es alto
+en términos absolutos, y es ahí donde está el margen que falta para llegar
+al tramo de 5 000 ms de RNF-08, no en seguir bajando fotogramas (ya en el
+piso de ADR-0007) ni en el codificador (usó apenas 3 185 ms de sus 20 000 ms
+disponibles, en un solo intento).
+
+**Dato aparte, no medido en esta corrida pero visible en el propio código:**
+`YuvFrameConverter.toSquareBitmap` convierte primero el fotograma completo
+de origen (720×1600 = 1 152 000 píxeles) de YUV a RGB, y recién después lo
+recorta al cuadrado centrado (720×720 = 518 400 píxeles) antes de escalar a
+512×512. Eso es convertir un 55% de píxeles que se descartan enseguida por
+el recorte. Si el costo de 148 ms/fotograma medido arriba es
+mayoritariamente la conversión YUV→RGB en sí (no el recorte ni el
+escalado), recortar la región de interés *antes* de convertir —o
+convertirla directo desde los planos YUV, sin pasar por el fotograma
+completo— es una optimización concreta y barata de proponer, sin tocar la
+ruta CPU en sí ni escalar hacia GPU. No se implementa en esta sesión: es un
+hallazgo para una futura ADR o issue, no una medición pedida.
+
+**Conclusión sobre CPU vs. GPU (ADR-0008):** con la evidencia de esta
+corrida, no hace falta escalar a la ruta GPU todavía. El costo es real y
+está concentrado en la conversión por fotograma, pero antes de pagar la
+complejidad de EGL/GLES (que ADR-0008 ya había descartado sin medir) hay
+una optimización mucho más barata sin cambiar de ruta: no convertir los
+píxeles que el recorte va a descartar. Si esa optimización no alcanza para
+entrar en el tramo de 5 000 ms de RNF-08, ahí sí GPU vuelve a ser una opción
+a considerar con datos — pero no antes.
+
+## Fase 2 — tercera corrida: recorte antes de convertir, y duraciones típicas de sticker
+
+Mismo dispositivo y mismo video real de las dos corridas anteriores. Dos
+cambios de código, ambos dentro de lo que ya decidía ADR-0008 (sin ADR
+nuevo), más cuatro duraciones de clip medidas en la misma corrida.
+
+### Validación de ADR-0008: la ruta CPU queda confirmada
+
+ADR-0008 se aceptó **sin medición previa** (ver su propia sección
+"Aceptado sin medición previa"), marcando dos valores como los más
+expuestos a quedar invalidados: el fps de prefiltro (ya resuelto por
+ADR-0009) y, "en menor medida", la propia elección de ruta de
+decodificación — CPU vía `ImageReader`, en vez de GPU vía
+`SurfaceTexture`/EGL (Opción 1, descartada en su momento sin medir).
+
+El análisis de la corrida anterior (sección "La pregunta sobre el costo
+del decode" de arriba) responde exactamente esa pregunta pendiente: bajar
+de 200 a 50 fotogramas convertidos (4×) bajó el tiempo de decode 3.29×,
+casi proporcional — el costo escala con los píxeles que se convierten, no
+con que `MediaCodec` recorra el video. Eso es evidencia directa a favor de
+la Opción 2 (CPU) de ADR-0008: el costo es atacable optimizando la
+conversión (como se hace más abajo en esta misma corrida), no es un piso
+fijo que solo GPU podría bajar. **Con esta medición, la ruta CPU de
+ADR-0008 queda confirmada — no hizo falta abrir un ADR nuevo para GPU, ni
+hace falta todavía.**
+
+### Recorte antes de convertir (dentro de ADR-0008, sin ADR nuevo)
+
+`YuvFrameConverter` convertía el fotograma de origen completo (720×1600 =
+1 152 000 píxeles) a RGB y recién después lo recortaba al cuadrado central
+(720×720 = 518 400 píxeles) — un 55% del trabajo de conversión descartado
+de inmediato. Ahora convierte directo el cuadrado central de los planos
+YUV de origen, sin pasar por el fotograma completo. Detalle y
+justificación de por qué el recorte no cambia con la rotación en el KDoc
+de `YuvFrameConverter`.
+
+**Antes y después, mismo video, mismo clip de 10 s:**
+
+| | Antes (recorta después de convertir) | Después (recorta antes de convertir) |
+|---|---|---|
+| Fotogramas convertidos | 50 | 50 |
+| Píxeles convertidos por fotograma | 1 152 000 | **518 400** (-55%) |
+| Tiempo de decode | 9 681 ms | **6 057 ms** (-37.4%) |
+| Tiempo de encode | 3 185 ms | 3 338 ms (sin cambios significativos — no toca el encoder) |
+| Tiempo total | 12 866 ms | **9 395 ms** (-27.0%) |
+
+La reducción de tiempo (-37.4%) es menor a la reducción de píxeles
+convertidos (-55%): parte del tiempo de decode es costo fijo que no cambia
+con la conversión (abrir el extractor, posicionar, que `MediaCodec`
+decodifique los ~351 fotogramas del tramo de 10 s aunque no se conviertan
+todos) — consistente con el modelo de la corrida anterior, que ya estimaba
+ese fijo en ~2.3 s. El resultado final (`sizeBytes`, `quality`, `frameCount`)
+no cambió: la optimización toca cómo se llega a los bitmaps, no qué bitmaps
+son.
+
+### Duraciones típicas de sticker, no solo el máximo de RF-06
+
+Los 12.8 s (y ahora 9.4 s) de las corridas anteriores son para un clip de
+10 s — el **máximo** que permite RF-06, no lo típico: un sticker real suele
+ser de 2 o 3 segundos. Mismo video, mismo dispositivo, ya con el recorte
+antes de convertir:
+
+| Duración pedida | Fotogramas (5 fps) | Decode | Encode (1 intento, quality=75) | Total | ¿Entra en 5 000 ms (RNF-08, contenido representativo)? |
+|---|---|---|---|---|---|
+| 2 s | 10 | 1 810 ms | 375 ms, 22 872 bytes | **2 185 ms** | **Sí**, con 2 815 ms de margen |
+| 3 s | 15 | 2 285 ms | 878 ms, 91 360 bytes | **3 163 ms** | **Sí**, con 1 837 ms de margen |
+| 5 s | 25 | 3 190 ms | 1 449 ms, 120 500 bytes | **4 639 ms** | **Sí**, con 361 ms de margen (ajustado) |
+| 10 s (máximo) | 50 | 6 057 ms | 3 338 ms, 292 538 bytes | **9 395 ms** | **No** (supera por 4 395 ms) — pero sí entra en el tramo de 20 000 ms |
+
+Traza completa de las tres duraciones nuevas
+(`video_import_trace_2s.txt`, `video_import_trace_3s.txt`,
+`video_import_trace_5s.txt`):
+
+```
+[21:31:21.637] === inicio: durationMs=2000 sobre .../stickersini_test_video.mp4 (25667796 bytes) ===
+[21:31:23.448] decode: elapsedMs=1810 sourceDurationMs=37687 truncated=true decodedFrameCount=10 framesParaEncoder=10
+[21:31:23.824] intento #1: frameCount=10 quality=75 minimizeSize=false sizeBytes=22872 elapsedMs=374
+[21:31:23.825] encode: elapsedMs=375 outcome=exito intentos=1 sizeBytes=22872 quality=75 frameCount=10
+[21:31:23.826] TOTAL: decodeMs=1810 encodeMs=375 totalMs=2185 outcome=exito
+
+[21:31:12.126] === inicio: durationMs=3000 sobre .../stickersini_test_video.mp4 (25667796 bytes) ===
+[21:31:14.413] decode: elapsedMs=2285 sourceDurationMs=37687 truncated=true decodedFrameCount=15 framesParaEncoder=15
+[21:31:15.291] intento #1: frameCount=15 quality=75 minimizeSize=false sizeBytes=91360 elapsedMs=878
+[21:31:15.292] encode: elapsedMs=878 outcome=exito intentos=1 sizeBytes=91360 quality=75 frameCount=15
+[21:31:15.292] TOTAL: decodeMs=2285 encodeMs=878 totalMs=3163 outcome=exito
+
+[21:31:15.301] === inicio: durationMs=5000 sobre .../stickersini_test_video.mp4 (25667796 bytes) ===
+[21:31:18.492] decode: elapsedMs=3190 sourceDurationMs=37687 truncated=true decodedFrameCount=25 framesParaEncoder=25
+[21:31:19.942] intento #1: frameCount=25 quality=75 minimizeSize=false sizeBytes=120500 elapsedMs=1449
+[21:31:19.942] encode: elapsedMs=1449 outcome=exito intentos=1 sizeBytes=120500 quality=75 frameCount=25
+[21:31:19.943] TOTAL: decodeMs=3190 encodeMs=1449 totalMs=4639 outcome=exito
+```
+
+Todas las corridas, en las cuatro duraciones, terminaron en un solo intento
+de codificación a `quality=75` — nunca hizo falta bisecar ni reducir
+fotogramas: el margen del lado del codificador es amplio en las cuatro
+(el peor caso, 10 s, usó 3 338 ms de un tope de 20 000 ms). El tamaño no
+escala de forma perfectamente lineal con los fotogramas (2 287 B/fotograma
+a 2 s, 6 091 B/fotograma a 3 s, 4 820 B/fotograma a 5 s, 5 851 B/fotograma a
+10 s) — a diferencia del contenido sintético de Fase 1, este es un video
+real con partes de complejidad visual distinta (texto, animaciones,
+pantallas estáticas) según qué tramo de los 37.7 s se haya tomado; no es un
+error de medición.
+
+### Lectura para decidir sobre RNF-08
+
+- **Para las duraciones que la gente realmente usa (2-3 s, y con margen
+  hasta 5 s), RNF-08 (tramo de 5 000 ms) se cumple con contenido real en
+  este dispositivo**, incluso antes de cualquier optimización adicional
+  más allá del recorte antes de convertir.
+- **Solo el clip del tamaño máximo permitido (10 s) no entra en el tramo de
+  5 000 ms** — pero sí entra, con margen, en el segundo tramo de RNF-08
+  (≤20 000 ms, contenido de alta complejidad visual), que es exactamente la
+  cláusula que ese requisito ya prevé para el caso más exigente.
+- Esto es justo la pregunta que dejó abierta el pedido de esta corrida:
+  ¿RNF-08 está mal planteado por no distinguir duración de clip, o el
+  segundo tramo (≤20 000 ms) ya es esa distinción y el resultado de 9.4 s a
+  10 s simplemente cae ahí, tal como el requisito previó para "contenido de
+  alta complejidad" (en este caso, alta complejidad no del contenido visual
+  en sí sino de la duración)? Los números de esta corrida no deciden esa
+  pregunta por sí solos — es una decisión sobre cómo leer el propio
+  requisito, no un dato adicional que estas mediciones puedan resolver.
+
+### Veredicto: RNF-08 queda validado con datos reales
+
+**RNF-08 se cumple.** El clip de 3 s — la duración que el propio requisito
+usa como referencia — sale en 3 163 ms, con 1 837 ms de margen, en el Redmi
+Note 14 con contenido real (no sintético). Que el clip del máximo de
+duración permitido (10 s) caiga en el segundo tramo (≤20 000 ms) no es un
+incumplimiento: es el requisito funcionando como se diseñó — un clip en el
+máximo de duración es exigente por definición, y esa cláusula existe
+exactamente para ese caso.
+
+Con esta lectura, `docs/desarrollo/requisitos.md` (versión 1.1) precisa
+RNF-08 para que el texto diga explícitamente lo que esta medición ya
+muestra: el tramo de 5 000 ms aplica a clips de **hasta 5 s** de contenido
+representativo, y el de 20 000 ms a clips **más largos** o de alta
+complejidad visual. No cambia lo exigido — el clip de 3 s seguía cumpliendo
+el tramo rápido antes de esta aclaración, y el de 10 s seguía cayendo en el
+segundo tramo — solo deja escrita la distinción por duración que las
+mediciones de esta fase confirman que el requisito ya hacía, sin decirlo
+explícito.
+
+**Pendiente de la fase de UI, no de esta medición:** el margen del clip de
+5 s en este dispositivo es de apenas 361 ms (4 639 ms de 5 000 ms). Un
+dispositivo más lento que el Redmi Note 14 podría superar ese tramo con un
+clip de esa misma duración. El indicador de progreso que RNF-08 exige para
+el tramo de 20 000 ms **debe mostrarse siempre, no solo cuando se detecta
+que el contenido es de alta complejidad o el clip es largo** — en un
+dispositivo lento, el tramo "rápido" puede no sentirse instantáneo, y ahí
+el progreso es lo que sostiene la experiencia. Anotado también en el README
+("Qué falta").
+
+### Cómo correr la medición con tu propio video
+
+`VideoImportPerformanceTest` no trae ningún video embebido: usa uno real
+que vos le pasás al dispositivo. Si no lo encuentra, el test se salta (no
+falla) e imprime la ruta exacta y el comando que falta.
+
+```bash
+adb devices
+
+# A diferencia de los tests de :webp (que corren en un APK de test aparte,
+# "...webp.test"), este test corre dentro de la propia app bajo prueba: el
+# archivo va al externalFilesDir de io.github.capibaracasual.stickersini
+# mismo, sin sufijo ".test" y sin necesitar permisos de almacenamiento.
+adb push mi_grabacion.mp4 \
+  /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini/files/stickersini_test_video.mp4
+
+./gradlew :app:connectedAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=io.github.capibaracasual.stickersini.media.VideoImportPerformanceTest \
+  -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+
+adb pull /storage/emulated/0/Android/data/io.github.capibaracasual.stickersini/files/video_import_trace.txt
+```
+
+(`leaveApksInstalledAfterRun=true` es necesario por el mismo motivo que en
+la Fase 1: Gradle desinstala el APK al terminar por defecto, y Android
+borra su carpeta de datos —con el video y la traza— junto con la
+desinstalación.)
+
+Para usar un nombre de archivo distinto a `stickersini_test_video.mp4`,
+pasar `-Pandroid.testInstrumentationRunnerArguments.videoFileName=<nombre>`
+y usar ese mismo nombre en el `adb push`.
+
+El filtro de clase de arriba corre las cinco pruebas de
+`VideoImportPerformanceTest`, cada una con su propia traza (mismo `adb
+pull`, cambiando el nombre del archivo):
+
+- `decodificaYCodificaUnVideoReal` — el clip completo de 10 s, el tope de
+  RF-06 (`video_import_trace.txt`).
+- `decodificaYCodificaClipDe5Segundos`, `decodificaYCodificaClipDe3Segundos`,
+  `decodificaYCodificaClipDe2Segundos` — la misma medición a duraciones más
+  típicas de un sticker real (`video_import_trace_5s.txt`,
+  `..._3s.txt`, `..._2s.txt`), agregadas para no evaluar RNF-08 solo contra
+  el caso más largo posible.
+- `decodificaDesdeUnInicioArbitrario` — chequeo de humo del posicionamiento
+  de ADR-0008 (`startMs`/`durationMs`, keyframe anterior, descarte de lo
+  previo al inicio pedido) con `startMs=1000, durationMs=2000`
+  (`video_import_seek_trace.txt`). Se salta sola si el video dura menos de
+  3 s. `ClipRangeTest` (`./gradlew :app:test`) ya cubre en aislamiento el
+  cálculo del tramo; esta prueba en dispositivo cubre lo que `ClipRangeTest`
+  no puede: que `MediaExtractor.seekTo` de verdad posiciona y decodifica
+  bien desde ahí.
+
+Si todo va bien: `BUILD SUCCESSFUL`, y `video_import_trace.txt` (además de
+`adb logcat -d -s StickersiniVideoImport:I`) muestra una línea `decode`
+(tiempo de `MediaCodec` + conversión + muestreo, duración del video de
+origen, si se truncó a 10 s, cuántos fotogramas sobrevivieron el prefiltro),
+una línea `encode` (tiempo de `WebpAnimEncoder`, tamaño y calidad final) y
+una línea `TOTAL` con la suma de ambos — ese es el número que se compara
+contra los 5000/20000 ms de RNF-08, no cada mitad por separado. El test en
+sí solo afirma RF-10 (el resultado cabe en 500 KB); no hay ninguna
+aserción de tiempo a propósito, igual que en `WebpAnimEncoderPerformanceTest`
+de la Fase 1 — **el número que importa es el que imprime, no que el test
+pase.**
+
+Con ese número en mano, completar la tabla de arriba y revisar los tres
+puntos que quedaron pendientes en el README ("Qué falta"): el umbral del
+50% de ADR-0007, la utilidad de `minimize_size` de ADR-0006, y si el fps de
+prefiltro (20) o la ruta de decodificación (CPU) de ADR-0008 siguen siendo
+correctos con contenido real.
