@@ -7,6 +7,20 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Añadido
+- RF-03: `ImageFrameDecoder` decodifica una imagen o foto existente en un
+  único `WebpFrame`, para `WebpAnimEncoder(targetSizeBytes =
+  STATIC_WEBP_TARGET_SIZE_BYTES)` (RF-11: un sticker estático es una
+  animación de un solo fotograma, no un codificador aparte — ADR-0002,
+  medido que el contenedor de animación no agrega sobrecosto relevante
+  contra el límite de 100 KB). Decodifica con `BitmapFactory` +
+  `inSampleSize` (sin decodificar más resolución que la necesaria para el
+  recorte) y corrige la orientación con el EXIF del framework
+  (`android.media.ExifInterface`, sin dependencia nueva).
+- `CenterSquareCrop`: el cálculo del cuadrado central, compartido entre
+  `YuvFrameConverter` (video) e `ImageFrameDecoder` (imagen) — antes vivía
+  solo dentro de `YuvFrameConverter`.
+
 ## [0.3.0-alpha] - 2026-09-25
 
 Cierra la Fase 2 de importación de video: el pipeline decodifica un video

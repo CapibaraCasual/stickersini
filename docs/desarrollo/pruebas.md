@@ -1130,3 +1130,86 @@ puntos que quedaron pendientes en el README ("Qué falta"): el umbral del
 50% de ADR-0007, la utilidad de `minimize_size` de ADR-0006, y si el fps de
 prefiltro (20) o la ruta de decodificación (CPU) de ADR-0008 siguen siendo
 correctos con contenido real.
+
+## Fase 2 (RF-03) — costo del contenedor de animación para un sticker estático
+
+Antes de implementar la importación de imagen (RF-03), había que decidir
+cómo codificar el resultado: RF-11 pide un WebP **estático** (≤100 KB), no
+animado. La opción de usar `WebpAnimEncoder` con una lista de un solo
+fotograma (en vez de un codificador estático aparte) ya estaba decidida por
+ADR-0002 (ver el KDoc de `WebpAnimEncoder`), pero antes de darla por buena
+había que medir cuánto pesa el contenedor de animación (`WebPAnimEncoder`,
+chunks `ANIM`/`ANMF`) frente a un WebP estático real (`Bitmap.compress`,
+framework de Android, sin ningún chunk de animación) — un sobrecosto
+despreciable contra el límite de 500 KB de RF-10 podría no serlo contra los
+apenas 100 KB de RF-11.
+
+`StaticWebpContainerOverheadTest` (`:webp`, instrumentado), mismo Redmi Note
+14, dos contenidos (color plano y el patrón "realista" ya usado en otras
+mediciones) a tres calidades (50, 75, 90), un solo fotograma, sin bisección
+ni `minimize_size`:
+
+| Contenido | Calidad | `WebPAnimEncoder` (1 fotograma) | `Bitmap.compress(WEBP)` | Diferencia | % del límite de RF-11 (100 000 B) |
+|---|---|---|---|---|---|
+| color plano | 50 | 820 B | 1 154 B | **-334 B** | -0.33% |
+| color plano | 75 | 836 B | 1 032 B | **-196 B** | -0.20% |
+| color plano | 90 | 1 016 B | 1 036 B | **-20 B** | -0.02% |
+| realista | 50 | 5 070 B | 3 896 B | **+1 174 B** | +1.17% |
+| realista | 75 | 5 700 B | 4 340 B | **+1 360 B** | +1.36% |
+| realista | 90 | 7 122 B | 6 002 B | **+1 120 B** | +1.12% |
+
+**Resultado: el sobrecosto es despreciable.** En el peor caso medido (contenido
+"realista", calidad 75), el contenedor de animación pesa 1 360 bytes más
+que el estático — 1.36% del límite de RF-11 — y en el contenido de color
+plano, la versión animada resultó incluso más chica (el encoder de Skia
+detrás de `Bitmap.compress` no necesariamente usa la misma configuración
+interna que libwebp vía JNI; no se investigó por qué, no cambia la
+conclusión). **Se sigue con libwebp vía `WebpAnimEncoder` para RF-11, sin
+codificador estático aparte**, tal como ya establecía ADR-0002 — esta
+medición lo confirma con datos, no lo cambia.
+
+## Fase 2 (RF-03) — importación de imagen
+
+Objetivo: decodificar una imagen o foto existente en un `WebpFrame` único,
+reutilizando el mismo pipeline de recorte que ya usa el video (ADR-0008),
+sin duplicar la lógica de "qué parte de la imagen ve el usuario".
+
+`ImageFrameDecoder` decodifica con `BitmapFactory` usando `inSampleSize`
+(la técnica estándar de Android para no decodificar más resolución de la
+que hace falta), calcula el cuadrado central con `CenterSquareCrop` —la
+misma clase que ya usa `YuvFrameConverter` para el video, sin duplicar la
+regla— corrige la orientación leyendo el EXIF (`android.media.ExifInterface`,
+del framework, sin agregar ninguna dependencia nueva) y entrega un único
+`WebpFrame` para `WebpAnimEncoder(targetSizeBytes =
+STATIC_WEBP_TARGET_SIZE_BYTES)`.
+
+### Corrección de la orientación EXIF, verificada de verdad
+
+`ImageFrameDecoderTest.corrigeLaOrientacionExifDeVerdad` no se conforma con
+comprobar que el resultado mide 512×512: dibuja una marca roja distintiva
+cerca de una esquina de una imagen sintética, la guarda como JPEG con cada
+una de las cuatro orientaciones EXIF (`NORMAL`, `ROTATE_90`, `ROTATE_180`,
+`ROTATE_270`), y verifica que la marca aparece en el cuadrante exacto que
+predice la rotación horaria que cada orientación exige (`ROTATE_90` →
+esquina superior derecha, `ROTATE_180` → inferior derecha, `ROTATE_270` →
+inferior izquierda). Pasa en dispositivo real (Redmi Note 14): la
+corrección de orientación funciona, no solo el tamaño de salida.
+
+### Medición
+
+`ImageFrameDecoderTest.mideDecodificacionYCodificacionDeUnaImagen`, mismo
+dispositivo, imagen sintética de 1200×1600 (JPEG, calidad 95):
+
+```
+decodeMs=15 encodeMs=116 totalMs=131 sizeBytes=1268 quality=75
+```
+
+131 ms en total, muy por debajo de cualquier presupuesto de RNF-08 (que en
+todo caso habla de clips de video por duración, no de una imagen suelta —
+no hay una fila de esa tabla contra la cual comparar este número, se
+registra igual por completitud). El resultado (1 268 bytes) cumple RF-11
+(≤100 000 bytes) con margen amplio. No se usó contenido real de cámara para
+esta medición (a diferencia del video, donde el riesgo real solo aparecía
+con contenido real): acá el riesgo era de formato/orientación/recorte, no
+de cuánto tarda comprimir, y eso se ejercita igual de bien con una imagen
+sintética con EXIF real escrito y releído por el framework.
