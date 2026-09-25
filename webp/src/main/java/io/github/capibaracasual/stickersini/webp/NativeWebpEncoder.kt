@@ -39,3 +39,14 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
         method: Int,
     ): ByteArray
 }
+
+/**
+ * El mismo encoder que usa [WebpAnimEncoder] por defecto (production real,
+ * `method=0` fijo por ADR-0006), expuesto para poder envolverlo con un
+ * `SingleShotWebpEncoder` de medición (ver `MeasuringEncoder` en
+ * `WebpAnimEncoderPerformanceTest` de este módulo, o el equivalente en
+ * `:app`) desde fuera de `:webp`. [NativeWebpEncoder] sigue siendo
+ * `internal`: esta referencia no expone su overload de `method`
+ * configurable, que ADR-0006 reserva a las mediciones de este módulo.
+ */
+val ProductionWebpEncoder: SingleShotWebpEncoder = NativeWebpEncoder
