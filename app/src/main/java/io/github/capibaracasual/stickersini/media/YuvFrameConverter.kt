@@ -1,0 +1,109 @@
+package io.github.capibaracasual.stickersini.media
+
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.media.Image
+
+/**
+ * Convierte un [Image] `YUV_420_888` (la salida de un `MediaCodec`
+ * apuntando a un `ImageReader`, ADR-0008) en un `Bitmap` `ARGB_8888`
+ * cuadrado de [targetSize]×[targetSize]: el contrato de entrada de
+ * [io.github.capibaracasual.stickersini.webp.WebpFrame]. Conversión en CPU,
+ * sin RenderScript (deprecado) ni GPU — medido en dispositivo real
+ * (`docs/desarrollo/pruebas.md`) que el costo escala con los píxeles
+ * convertidos, no con recorrer el video, así que la ruta CPU de ADR-0008
+ * queda confirmada sin necesitar GPU.
+ *
+ * El recorte de área que elige el usuario (RF-07) no existe todavía: por
+ * ahora se recorta al cuadrado centrado más grande posible, sin ninguna
+ * elección del usuario de por medio.
+ *
+ * **Recorta antes de convertir, no después.** La primera versión convertía
+ * el fotograma de origen completo a RGB y recién ahí lo recortaba al
+ * cuadrado central — para un video en retrato como el medido (720×1600),
+ * eso convierte 1 152 000 píxeles para quedarse con 518 400 (un 55%
+ * descartado de inmediato). Esta versión solo itera sobre las filas y
+ * columnas del cuadrado central de los planos YUV de origen. El recorte se
+ * calcula sobre las dimensiones de origen ([Image.getWidth]/[Image.getHeight],
+ * antes de rotar) y no sobre las finales a propósito: un cuadrado centrado
+ * en la imagen final, rotada 0/90/180/270 grados alrededor de su propio
+ * centro, corresponde siempre al mismo cuadrado centrado en la imagen de
+ * origen (incluida su definición de fila/columna) — rotar alrededor del
+ * centro no mueve el centro, y un giro de múltiplo de 90° conserva la
+ * forma cuadrada. Por eso [rotate] sigue aplicándose después del recorte,
+ * sobre el cuadrado ya chico, sin cambiar qué píxeles de origen hacían
+ * falta.
+ */
+internal object YuvFrameConverter {
+
+    fun toSquareBitmap(image: Image, rotationDegrees: Int, targetSize: Int): Bitmap {
+        val cropped = yuv420CenterSquareToArgb(image)
+        val rotated = if (rotationDegrees % 360 != 0) rotate(cropped, rotationDegrees) else cropped
+        return if (rotated.width == targetSize) {
+            rotated
+        } else {
+            Bitmap.createScaledBitmap(rotated, targetSize, targetSize, /* filter = */ true)
+        }
+    }
+
+    /**
+     * BT.601, entero: misma fórmula que usan otras muestras de Android para
+     * `YUV_420_888` (evita el costo de punto flotante por píxel sin
+     * necesitar una tabla de conversión aparte). Las posiciones de los
+     * planos U/V respetan strides y `pixelStride` propios: `YUV_420_888` no
+     * garantiza que estén empaquetados de forma contigua. Convierte
+     * únicamente el cuadrado centrado más grande de la imagen de origen
+     * (ver KDoc de la clase): recorre `size × size` posiciones, no
+     * `width × height`.
+     */
+    private fun yuv420CenterSquareToArgb(image: Image): Bitmap {
+        val width = image.width
+        val height = image.height
+        val size = minOf(width, height)
+        val xOffset = (width - size) / 2
+        val yOffset = (height - size) / 2
+
+        val yPlane = image.planes[0]
+        val uPlane = image.planes[1]
+        val vPlane = image.planes[2]
+        val yBuffer = yPlane.buffer
+        val uBuffer = uPlane.buffer
+        val vBuffer = vPlane.buffer
+        val yRowStride = yPlane.rowStride
+        val uRowStride = uPlane.rowStride
+        val vRowStride = vPlane.rowStride
+        val uPixelStride = uPlane.pixelStride
+        val vPixelStride = vPlane.pixelStride
+
+        val pixels = IntArray(size * size)
+        for (row in 0 until size) {
+            val sourceRow = row + yOffset
+            val yRowStart = sourceRow * yRowStride
+            val uvRow = sourceRow / 2
+            val uRowStart = uvRow * uRowStride
+            val vRowStart = uvRow * vRowStride
+            var pixelIndex = row * size
+            for (col in 0 until size) {
+                val sourceCol = col + xOffset
+                val y = (yBuffer.get(yRowStart + sourceCol).toInt() and 0xFF) - 16
+                val uvCol = sourceCol / 2
+                val u = (uBuffer.get(uRowStart + uvCol * uPixelStride).toInt() and 0xFF) - 128
+                val v = (vBuffer.get(vRowStart + uvCol * vPixelStride).toInt() and 0xFF) - 128
+
+                val yScaled = 298 * y
+                val r = ((yScaled + 409 * v + 128) shr 8).coerceIn(0, 255)
+                val g = ((yScaled - 100 * u - 208 * v + 128) shr 8).coerceIn(0, 255)
+                val b = ((yScaled + 516 * u + 128) shr 8).coerceIn(0, 255)
+
+                pixels[pixelIndex] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                pixelIndex++
+            }
+        }
+        return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+    }
+
+    private fun rotate(bitmap: Bitmap, degrees: Int): Bitmap {
+        val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, /* filter = */ true)
+    }
+}
