@@ -32,20 +32,27 @@ publicada en Google Play.
   RF-10, RF-12, RF-13 y RNF-08 con margen real medido, tanto en contenido
   representativo como en el peor caso adverso probado. Detalle completo en
   [`docs/desarrollo/pruebas.md`](docs/desarrollo/pruebas.md).
-- **Fase 2 — importación de video, cerrada (RF-02).** El módulo `media/`
-  decodifica un video existente con `MediaCodec` hacia fotogramas listos
-  para `:webp` (ADR-0008: ruta CPU vía `ImageReader`, confirmada en
-  dispositivo real, sin necesitar GPU; ADR-0009: fps de prefiltro derivado
-  del piso de ADR-0007). **RNF-08 validado con una grabación de pantalla
-  real en un Redmi Note 14:** un clip de 3 s (la referencia del propio
-  requisito) convierte en 3 163 ms, con margen; el máximo de 10 s cae, como
-  está previsto, en el segundo tramo del requisito (≤20 s). Detalle
-  completo, con las tres rondas de medición, en
+- **Fase 2 — importación de video e imagen, cerrada (RF-02, RF-03).** El
+  módulo `media/` decodifica un video o una imagen/foto existente hacia
+  fotogramas listos para `:webp` (ADR-0008: ruta CPU vía `ImageReader`,
+  confirmada en dispositivo real, sin necesitar GPU; ADR-0009: fps de
+  prefiltro derivado del piso de ADR-0007). Video e imagen comparten el
+  mismo recorte al cuadrado central (`CenterSquareCrop`) y el mismo
+  `WebpAnimEncoder`: un sticker estático (RF-11) es una animación de un solo
+  fotograma, no un codificador aparte (ADR-0002; medido que el contenedor de
+  animación no agrega un sobrecosto relevante contra el límite de 100 KB —
+  ver `docs/desarrollo/pruebas.md`). Orientación EXIF corregida y verificada
+  con una prueba que sigue una marca visual a través de la rotación, no solo
+  el tamaño de salida. **RNF-08 validado con una grabación de pantalla real
+  en un Redmi Note 14:** un clip de 3 s (la referencia del propio requisito)
+  convierte en 3 163 ms, con margen; el máximo de 10 s cae, como está
+  previsto, en el segundo tramo del requisito (≤20 s). Detalle completo, con
+  todas las rondas de medición, en
   [`docs/desarrollo/pruebas.md`](docs/desarrollo/pruebas.md). Alcance de
-  esta fase: produce un WebP válido a partir de un video existente, sin UI
-  todavía (selección de archivo, recorte), sin importación de imagen
-  (RF-03), sin guardar el resultado como sticker de un pack ni entregarlo a
-  WhatsApp — eso sigue en "Qué falta".
+  esta fase: produce un WebP válido a partir de un video o una imagen
+  existente, sin UI todavía (selección de archivo, recorte de área), sin
+  guardar el resultado como sticker de un pack ni entregarlo a WhatsApp —
+  eso sigue en "Qué falta".
 
 ### Qué falta
 
@@ -61,10 +68,10 @@ publicada en Google Play.
     libwebp a la pantalla de licencias a mano.
   - Historias de usuario del trabajo pendiente (Fase 2 en adelante), para
     rastrearlo fuera de este README.
-- **Importación de imagen (RF-03)** y **UI de la Fase 2** (selección de
-  archivo, recorte temporal RF-06, recorte de área RF-07, vista previa
-  RF-09): siguiente trabajo de código. El pipeline fotograma→WebP ya existe
-  y está medido, así que esta parte debería ser corta.
+- **UI de la Fase 2** (selección de archivo, recorte temporal RF-06,
+  recorte de área RF-07, vista previa RF-09): siguiente trabajo de código,
+  ahora que los dos orígenes de contenido de esta fase (video e imagen)
+  están implementados y medidos.
 - **Al implementar la UI: el indicador de progreso de RNF-08 debe mostrarse
   siempre, no solo para clips largos o de alta complejidad visual.** Medido
   en el Redmi Note 14: un clip de 5 s cumple el tramo rápido (≤5 s) con solo
