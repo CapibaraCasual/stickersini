@@ -1563,3 +1563,99 @@ pruebas**: si un dispositivo de gama más baja no sostiene el 12% de margen
 en los clips de 5 y 10 s, ese dato —no una repetición de esta medición en
 el mismo Redmi Note 14— es lo que debería decidir si 8 fps se sostiene
 como valor único o si hace falta reabrir esta pregunta.
+
+## Fase 3 — barrido de resolución de codificación × fps (2026-09-26)
+
+Hipótesis a probar (motivada por cómo Sticker.ly llega a 15 fps: además de
+más fotogramas, baja la resolución de codificación): decodificar/convertir/
+codificar a una resolución menor que los 512×512 finales y escalar el
+resultado a 512 recién al final, ¿deja subir el fps de prefiltro (fijo en 8
+desde ADR-0012) sin volver a romper RNF-08?
+
+**Método:** mismo dispositivo y video real de siempre (Xiaomi Redmi Note 14
+`24117RN76L`, Android 14, `Recording_20260919_191641.mp4`), método de 5
+corridas (mediana y rango, peor caso decide). `ResolutionFpsSweepTest`
+(`app/src/androidTest`) decodifica con `VideoFrameDecoder(targetFps =
+fps).decode(..., targetSize = resolución)`, escala cada fotograma a 512×512
+con `Bitmap.createScaledBitmap` si la resolución no es ya 512 (el "escalar
+al final"), y codifica ESE resultado ya a 512×512 con
+`WebpAnimEncoder` normal — el mismo archivo que `StickerContentProvider`
+tendría que poder servir de verdad (RF-10/RF-11 son exactos, no
+aproximados). El tiempo reportado es decode + escalado + codificación
+juntos. `VideoFrameDecoder.decode` acepta `targetSize` desde este mismo
+cambio (parámetro de medición, valor por defecto 512 — ningún llamador de
+producto lo cambia).
+
+Grilla: resoluciones 512/448/384/320 × fps 8/12/15 × clips de 3/5/10 s — 36
+celdas, 180 corridas.
+
+### Resultado: ninguna combinación con fps>8 cumple RNF-08, en ninguna resolución
+
+| Resolución | fps | 3 s (≤5000ms) | 5 s (≤5000ms) | 10 s (≤20000ms) |
+|---|---|---|---|---|
+| 512 | 8 (actual) | 2872 [2776–3119] ✔ | 4188 [4044–4561] ✔ | 17137 [17048–17479] ✔ (2 intentos) |
+| 512 | 12 | 3445 [3131–3497] ✔ | 5379 [5309–**5401**] ✘ | 23477 [19575–**24134**] ✘ |
+| 512 | 15 | 3733 [3651–3953] ✔ | 6330 [6283–**6570**] ✘ | 19888 [19797–**20195**] ✘ |
+| 448 | 8 | 2692 [2531–2893] ✔ | 4561 [3798–**5042**] ✘ (al límite) | 8895 [8329–10416] ✔ (1 intento) |
+| 448 | 12 | 3330 [3194–3397] ✔ | 5683 [5546–**5818**] ✘ | 24345 [23859–**24500**] ✘ |
+| 448 | 15 | 3812 [3625–4344] ✔ | 6145 [6116–**6471**] ✘ | 20067 [19919–**22067**] ✘ |
+| 384 | 8 | 2786 [2500–2828] ✔ | 4063 [3875–4357] ✔ | 8629 [8265–8809] ✔ (1 intento) |
+| 384 | 12 | 3407 [3354–3486] ✔ | 5505 [5366–**5551**] ✘ | 24304 [18838–**24728**] ✘ |
+| 384 | 15 | 3929 [3882–4294] ✔ | 6442 [6329–**6466**] ✘ | 20551 [20492–**20881**] ✘ |
+| 320 | 8 | 2701 [2690–2734] ✔ | 4295 [4153–4541] ✔ | 8697 [8308–8876] ✔ (1 intento) |
+| 320 | 12 | 3396 [3297–3416] ✔ | 5598 [5495–**5638**] ✘ | 24428 [19274–**24793**] ✘ |
+| 320 | 15 | 3739 [3668–3919] ✔ | 6345 [6279–**6471**] ✘ | 20402 [20155–**20544**] ✘ |
+
+(mediana [rango], peor caso en negrita cuando decide; ✔/✘ contra el peor
+caso, no la mediana. Traza completa: `resolution_fps_sweep_trace.txt`,
+pedir a quien corrió el test.)
+
+**Ninguna de las 8 celdas con fps≥12 cumple el tramo de 5 s, en ninguna
+resolución** — ni siquiera la más chica probada (320). El patrón se repite
+igual de mal en el tramo de 10 s.
+
+**Por qué bajar resolución no habilita subir fps:** el costo que domina al
+subir fps es decodificar más fotogramas — la conversión YUV→RGB nativa
+(`:yuv`) cuesta por fotograma decodificado, no por el tamaño final al que
+se escala después (ver ADR-0011: ese costo ya está aislado del resto del
+decode, y no depende de `targetSize`). Bajar la resolución de codificación
+sí achica el archivo resultante y evita reintentos del codificador (ver
+más abajo), pero eso ataca el costo de *codificar*, no el de *decodificar
+50-88% más fotogramas* que exige pasar de 8 a 12/15 fps — el cuello de
+botella equivocado para este problema.
+
+**Conclusión: subir el fps de prefiltro no es viable en ninguna resolución
+de codificación probada. ADR-0012 (8 fps) queda sin cambios** — no
+corresponde un ADR nuevo que lo reemplace, porque la medición no lo
+justifica.
+
+### Hallazgo secundario: a los mismos 8 fps, bajar resolución casi duplica el margen del tramo de 10 s
+
+A 512×512 (la actual), el clip de 10 s necesita **2 intentos** del
+codificador (el primero, a calidad 75, no entra en 500 KB; el segundo, con
+menos fotogramas o menos calidad, sí) — 17 137 ms de mediana, **12.6% de
+margen** contra el tope de 20 000 ms. A 384 o 320, el primer intento ya
+entra en 500 KB (contenido más chico comprime más, mismo mecanismo por el
+que Sticker.ly puede permitirse más fps): **1 intento**, ~8 700 ms de
+mediana, **55-56% de margen** — más del doble.
+
+| Resolución | Intentos (10 s) | Peor caso (ms) | Margen vs. 20 000 ms | Tamaño final |
+|---|---|---|---|---|
+| 512 (actual) | 2 | 17 479 | 12.6% | 408 822 B |
+| 448 | 1 | 10 416 | 47.9% | 371 570 B |
+| 384 | 1 | 8 809 | 55.9% | 349 034 B |
+| 320 | 1 | 8 876 | 55.6% | 345 030 B |
+
+En el tramo de 5 s el efecto es más chico (384 gana margen sobre 512: 12.9%
+contra 8.8%; 320 queda parejo, 9.2%; 448 incluso pierde, con un resultado
+al límite — 5042 ms sobre 5000, sin margen real, parece una corrida con
+decode más lento que las otras 4, no un patrón sistemático).
+
+**No implementado.** Esto no sube fps, solo da más colchón contra un
+dispositivo más lento en el tramo hoy más ajustado (12.6%), a costa de
+nitidez (menos resolución de origen antes de escalar a 512). Decisión
+pendiente de comparación visual — ver "Qué falta" en el README. Se
+generaron tres stickers de la misma escena (clip de 10 s) con
+`ComparisonStickerGeneratorTest`: actual (512@8fps) y las dos candidatas
+(384@8fps, 320@8fps), dejados en el teléfono
+(`/sdcard/Download/stickersini_comparacion/`) para mirar antes de decidir.

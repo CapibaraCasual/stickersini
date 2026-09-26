@@ -107,7 +107,14 @@ publicada en Google Play.
     subirlo a mano incumpliría RNF-08 a propósito. La única vía legítima
     para más fluidez es abaratar el decode todavía más (mismo camino que
     ya funcionó una vez: mover la conversión YUV→RGB a `:yuv`, ADR-0011),
-    no cambiar el número.
+    no cambiar el número. **Confirmado de nuevo el 2026-09-26**, barriendo
+    además resolución de codificación (512/448/384/320) por si codificar
+    más chico y escalar a 512 al final dejaba subir el fps, como hace
+    Sticker.ly: no hay ninguna combinación con fps>8 que cumpla RNF-08 en
+    ninguna resolución — el costo que domina al subir fps es decodificar
+    más fotogramas, no el tamaño del archivo final, así que bajar
+    resolución ataca el cuello de botella equivocado. Detalle completo del
+    barrido (36 combinaciones, 180 corridas) en `docs/desarrollo/pruebas.md`.
 
 ### Qué falta
 
@@ -122,6 +129,17 @@ publicada en Google Play.
   Note 14; el margen que deja 8 fps de prefiltro (ADR-0012) es ajustado
   (12%) en dos de los tres casos medidos, y podría no sostenerse en un
   dispositivo más lento.
+- **Tema abierto, pendiente de mirar, no de medir:** el barrido del
+  2026-09-26 (mismo punto anterior) mostró que, a los mismos 8 fps, bajar
+  la resolución de codificación de 512 a 384 evita un segundo intento de
+  bisección del codificador en el clip de 10 s y casi duplica su margen
+  (12.6% → 55.9%) — a costa de nitidez, porque el resultado final sale de
+  escalar una imagen más chica a 512×512, no de codificar 512 nativo. Se
+  generaron tres stickers de la misma escena (actual 512@8fps, candidatas
+  384@8fps y 320@8fps) con `ComparisonStickerGeneratorTest`, dejados en el
+  teléfono (`/sdcard/Download/stickersini_comparacion/`). Decisión pendiente
+  de mirarlos: si la pérdida de nitidez es aceptable, va en un ADR nuevo que
+  ajuste la resolución de codificación (no el fps, que ADR-0012 ya cerró).
 - **Backlog de interfaz, sin fecha:**
   - Reproducir el video en la pantalla de tramo (`TrimScreen`), para elegir
     el fragmento viéndolo en vez de solo por segundos.

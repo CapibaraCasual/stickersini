@@ -49,6 +49,13 @@ class VideoFrameDecoder(
      * centrado más grande ([NormalizedCrop.CENTERED]). Se aplica igual a
      * todos los fotogramas del tramo: el usuario elige un solo recorte para
      * todo el clip, no uno por fotograma.
+     * @param targetSize lado del cuadrado que produce cada fotograma; por
+     * defecto [STICKER_SIZE] (RF-10/RF-11 exigen exactamente eso en el
+     * resultado final). Parámetro de medición, no de producto: existe para
+     * `ResolutionFpsSweepTest` (ver `docs/desarrollo/pruebas.md`), que
+     * necesita comparar el costo de codificar a una resolución menor y
+     * escalar a 512 después — ningún llamador de producto lo cambia del
+     * valor por defecto.
      * @param onFrameDecoded se llama cada vez que un fotograma sobrevive el
      * prefiltro de [FrameSampler] y ya se convirtió a bitmap, con cuántos
      * lleva y una estimación del total (RNF-08: avance real, no un
@@ -63,6 +70,7 @@ class VideoFrameDecoder(
         startMs: Long = 0L,
         durationMs: Long = MAX_CLIP_DURATION_MS,
         normalizedCrop: NormalizedCrop = NormalizedCrop.CENTERED,
+        targetSize: Int = STICKER_SIZE,
         onFrameDecoded: (framesDecoded: Int, estimatedTotalFrames: Int) -> Unit = { _, _ -> },
     ): VideoImportResult {
         val extractor = MediaExtractor()
@@ -71,7 +79,7 @@ class VideoFrameDecoder(
                 val descriptor = checkNotNull(pfd) { "No se pudo abrir $uri" }
                 extractor.setDataSource(descriptor.fileDescriptor)
             }
-            return decodeSelectedTrack(extractor, startMs, durationMs, normalizedCrop, onFrameDecoded)
+            return decodeSelectedTrack(extractor, startMs, durationMs, normalizedCrop, targetSize, onFrameDecoded)
         } finally {
             extractor.release()
         }
@@ -82,6 +90,7 @@ class VideoFrameDecoder(
         startMs: Long,
         durationMs: Long,
         normalizedCrop: NormalizedCrop,
+        targetSize: Int,
         onFrameDecoded: (framesDecoded: Int, estimatedTotalFrames: Int) -> Unit,
     ): VideoImportResult {
         val trackIndex = (0 until extractor.trackCount).firstOrNull { index ->
@@ -181,7 +190,7 @@ class VideoFrameDecoder(
                         acquireImageMs += (System.nanoTime() - acquireStart) / 1_000_000L
                         try {
                             val convertStart = System.nanoTime()
-                            keptBitmaps += YuvFrameConverter.toSquareBitmap(image, rotationDegrees, STICKER_SIZE, normalizedCrop)
+                            keptBitmaps += YuvFrameConverter.toSquareBitmap(image, rotationDegrees, targetSize, normalizedCrop)
                             conversionMs += (System.nanoTime() - convertStart) / 1_000_000L
                             keptPtsUs += presentationTimeUs
                         } finally {
