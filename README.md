@@ -55,19 +55,26 @@ publicada en Google Play.
   eso sigue en "Qué falta".
 - **Fase 3 — en curso: primer recorrido de punta a punta.** Elegir un
   video o una imagen → **selector de tramo (RF-06) si es video** →
-  conversión con progreso real → vista previa (un solo fotograma, no
-  animada todavía) → guardar. Con recorte de área automático al centro
-  todavía (RF-07 sigue en "Qué falta"). El resultado se guarda siempre en
-  uno de los dos packs semilla (estático o animado según corresponda,
-  ADR-0010) — no hay todavía un pack propio con nombre (RF-15).
+  **encuadre con pellizco (RF-07)** → conversión con progreso real → vista
+  previa (un solo fotograma, no animada todavía) → guardar. El resultado
+  se guarda siempre en uno de los dos packs semilla (estático o animado
+  según corresponda, ADR-0010) — no hay todavía un pack propio con nombre
+  (RF-15).
   - Navegación entre pasos con Navigation Compose (ADR-0013), reemplazando
     el booleano a mano que conmutaba entre las dos únicas pantallas de
     antes: necesario en cuanto el flujo de creación pasó a tener más de un
-    paso propio (elegir archivo → tramo → convertir/guardar).
+    paso propio (elegir archivo → tramo → recorte → convertir/guardar).
   - El selector de tramo (`TrimScreen`) lee la duración real del video con
     `MediaMetadataRetriever` y deja elegir cualquier ventana de hasta 10 s
     dentro de ella con un `RangeSlider`, con una miniatura del fotograma de
     inicio como vista previa.
+  - El encuadre con pellizco (`CropScreen`) deja mover y redimensionar el
+    cuadrado de recorte sobre una vista previa del contenido ya orientado
+    correctamente, arrancando siempre centrado (mismo recorte automático
+    de antes) mientras el usuario no toque nada. El recorte se guarda
+    como fracciones relativas al contenido, no píxeles absolutos: la
+    misma elección sigue alineada aunque la vista previa y la
+    decodificación final usen resoluciones distintas.
   - `StickerConversionPipeline` reporta avance real en cada etapa
     (fotogramas decodificados, intento de codificación), no un indicador
     indeterminado.
@@ -91,13 +98,6 @@ publicada en Google Play.
 
 - **Fase 3 — el resto de la interfaz**, sobre el recorrido mínimo que ya
   funciona:
-  - Recorte de área con pellizco de dos dedos (RF-07): hoy `CenterSquareCrop`
-    siempre recorta al cuadrado centrado más grande, sin ninguna elección de
-    por medio. Cuando exista este recorte, tiene que reemplazar esa regla
-    fija en los dos consumidores que la comparten (`YuvFrameConverter`,
-    `ImageFrameDecoder`), no solo en uno.
-  - Flujo pensado: elegir video → elegir tramo de 10 s (RF-06) → encuadrar
-    con pellizco (RF-07) → vista previa → guardar.
   - Gestión de stickers y packs (RF-15, RF-16): ver los stickers ya
     creados, crear packs propios con nombre, renombrarlos, eliminar
     stickers. Hoy no existe ninguna pantalla para esto.

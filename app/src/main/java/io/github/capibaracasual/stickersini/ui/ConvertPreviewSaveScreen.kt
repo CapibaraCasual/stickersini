@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.media.ConversionStage
+import io.github.capibaracasual.stickersini.media.NormalizedCrop
 import io.github.capibaracasual.stickersini.media.StickerConversionPipeline
 import io.github.capibaracasual.stickersini.provider.WhatsAppStickerIntent
 import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
@@ -49,10 +50,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * Último tramo del flujo de creación: convierte ([startMs]/[durationMs] ya
- * elegidos por quien llama — RF-06, ver `ui/TrimScreen.kt` — con recorte
- * automático al centro, RF-07 pendiente), muestra vista previa (RF-09) y
- * guarda en el pack semilla que corresponda (RF-18, ver [SeedPacks]): no
- * hay todavía una pantalla para elegir o crear un pack propio (RF-15).
+ * elegidos en `ui/TrimScreen.kt` — RF-06 — y [crop] en `ui/CropScreen.kt`
+ * — RF-07 —), muestra vista previa (RF-09) y guarda en el pack semilla que
+ * corresponda (RF-18, ver [SeedPacks]): no hay todavía una pantalla para
+ * elegir o crear un pack propio (RF-15).
  */
 @Composable
 fun ConvertPreviewSaveScreen(
@@ -60,6 +61,7 @@ fun ConvertPreviewSaveScreen(
     isVideo: Boolean,
     startMs: Long,
     durationMs: Long,
+    crop: NormalizedCrop,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -72,11 +74,11 @@ fun ConvertPreviewSaveScreen(
     var savedPackName by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(uri, startMs, durationMs) {
+    LaunchedEffect(uri, startMs, durationMs, crop) {
         stage = if (isVideo) ConversionStage.DecodingVideo(0, 1) else ConversionStage.DecodingImage
         withContext(Dispatchers.Default) {
             try {
-                val result = StickerConversionPipeline.convert(context, uri, isVideo, startMs, durationMs) { newStage -> stage = newStage }
+                val result = StickerConversionPipeline.convert(context, uri, isVideo, startMs, durationMs, crop) { newStage -> stage = newStage }
                 previewBitmap = BitmapFactory.decodeByteArray(result.bytes, 0, result.bytes.size)
                 pendingResult = result
             } catch (error: Exception) {

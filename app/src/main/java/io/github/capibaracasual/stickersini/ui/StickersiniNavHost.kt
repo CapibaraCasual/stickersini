@@ -13,26 +13,29 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.capibaracasual.stickersini.media.MAX_CLIP_DURATION_MS
+import io.github.capibaracasual.stickersini.media.NormalizedCrop
 
 private object Routes {
     const val HOME = "home"
     const val PICK = "create/pick"
     const val TRIM = "create/trim"
+    const val CROP = "create/crop"
     const val CONVERT = "create/convert"
 }
 
 /**
  * Estado del flujo de creación en curso (rutas bajo `create/`: elegir
- * archivo → tramo → convertir/guardar), compartido entre esos pasos. Vive
- * tan arriba como el `NavHost` (ADR-0013) para sobrevivir a la navegación
- * entre ellos sin serializarlo como argumento de ruta — un `Uri` no es un
- * tipo primitivo cómodo para eso.
+ * archivo → tramo → recorte → convertir/guardar), compartido entre esos
+ * pasos. Vive tan arriba como el `NavHost` (ADR-0013) para sobrevivir a la
+ * navegación entre ellos sin serializarlo como argumento de ruta — un
+ * `Uri` no es un tipo primitivo cómodo para eso.
  */
 private class CreateStickerSession {
     var uri by mutableStateOf<Uri?>(null)
     var isVideo by mutableStateOf(false)
     var startMs by mutableLongStateOf(0L)
     var durationMs by mutableLongStateOf(MAX_CLIP_DURATION_MS)
+    var crop by mutableStateOf(NormalizedCrop.CENTERED)
 }
 
 /** Grafo de navegación completo de la app (ADR-0013). */
@@ -53,7 +56,11 @@ fun StickersiniNavHost(navController: NavHostController = rememberNavController(
                     session.isVideo = isVideo
                     session.startMs = 0L
                     session.durationMs = MAX_CLIP_DURATION_MS
-                    navController.navigate(if (isVideo) Routes.TRIM else Routes.CONVERT)
+                    session.crop = NormalizedCrop.CENTERED
+                    // El recorte de área (RF-07) aplica a video e imagen por
+                    // igual; el tramo (RF-06) es propio de video, así que
+                    // una imagen salta directo al recorte.
+                    navController.navigate(if (isVideo) Routes.TRIM else Routes.CROP)
                 },
             )
         }
@@ -73,6 +80,24 @@ fun StickersiniNavHost(navController: NavHostController = rememberNavController(
                     onContinue = { startMs, durationMs ->
                         session.startMs = startMs
                         session.durationMs = durationMs
+                        navController.navigate(Routes.CROP)
+                    },
+                )
+            }
+        }
+
+        composable(Routes.CROP) {
+            val uri = session.uri
+            if (uri == null) {
+                LaunchedEffect(Unit) { navController.popBackStack(Routes.HOME, inclusive = false) }
+            } else {
+                CropScreen(
+                    uri = uri,
+                    isVideo = session.isVideo,
+                    videoStartMs = session.startMs,
+                    onBack = { navController.popBackStack() },
+                    onContinue = { crop ->
+                        session.crop = crop
                         navController.navigate(Routes.CONVERT)
                     },
                 )
@@ -89,6 +114,7 @@ fun StickersiniNavHost(navController: NavHostController = rememberNavController(
                     isVideo = session.isVideo,
                     startMs = session.startMs,
                     durationMs = session.durationMs,
+                    crop = session.crop,
                     onBack = { navController.popBackStack(Routes.HOME, inclusive = false) },
                 )
             }

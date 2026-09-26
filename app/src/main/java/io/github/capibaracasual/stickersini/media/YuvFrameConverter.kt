@@ -23,9 +23,9 @@ import java.nio.ByteBuffer
  * como referencia del test de paridad píxel a píxel contra la nativa
  * (`YuvConversionParityTest`).
  *
- * El recorte de área que elige el usuario (RF-07) no existe todavía: por
- * ahora se recorta al cuadrado centrado más grande posible, sin ninguna
- * elección del usuario de por medio.
+ * El recorte de área que elige el usuario (RF-07, [NormalizedCrop]) ya se
+ * aplica acá: por defecto sigue siendo el cuadrado centrado más grande
+ * posible ([NormalizedCrop.CENTERED]).
  *
  * **Recorta antes de convertir, no después.** La primera versión convertía
  * el fotograma de origen completo a RGB y recién ahí lo recortaba al
@@ -39,15 +39,25 @@ import java.nio.ByteBuffer
  * centro, corresponde siempre al mismo cuadrado centrado en la imagen de
  * origen (incluida su definición de fila/columna) — rotar alrededor del
  * centro no mueve el centro, y un giro de múltiplo de 90° conserva la
- * forma cuadrada. Por eso [rotateSquareBitmap] sigue aplicándose después
- * del recorte, sobre el cuadrado ya chico, sin cambiar qué píxeles de
- * origen hacían falta. El cálculo del recorte en sí vive en
- * [CenterSquareCrop], compartido con [ImageFrameDecoder].
+ * forma cuadrada. Esta propiedad es la que hace que el recorte automático
+ * (centrado) no necesite saber nada de rotación; un recorte elegido por el
+ * usuario (RF-07) sí la rompe — `ui/CropScreen.kt` es quien convierte la
+ * elección del usuario, hecha sobre el contenido ya rotado, de vuelta a
+ * coordenadas de origen antes de llegar acá (ver
+ * `displayedCropToNormalized`). Por eso [rotateSquareBitmap] sigue
+ * aplicándose después del recorte, sobre el cuadrado ya chico, sin cambiar
+ * qué píxeles de origen hacían falta. El cálculo del recorte en sí vive en
+ * [SquareCrop], compartido con [ImageFrameDecoder].
  */
 internal object YuvFrameConverter {
 
-    fun toSquareBitmap(image: Image, rotationDegrees: Int, targetSize: Int): Bitmap {
-        val cropped = yuv420CenterSquareToArgb(image)
+    fun toSquareBitmap(
+        image: Image,
+        rotationDegrees: Int,
+        targetSize: Int,
+        normalizedCrop: NormalizedCrop = NormalizedCrop.CENTERED,
+    ): Bitmap {
+        val cropped = yuv420CenterSquareToArgb(image, normalizedCrop)
         val rotated = if (rotationDegrees % 360 != 0) rotateSquareBitmap(cropped, rotationDegrees) else cropped
         return if (rotated.width == targetSize) {
             rotated
@@ -57,8 +67,8 @@ internal object YuvFrameConverter {
     }
 
     /** Extrae planos, strides y el recorte de [image] y delega en [NativeYuvConverter] (ADR-0011). */
-    private fun yuv420CenterSquareToArgb(image: Image): Bitmap {
-        val crop = CenterSquareCrop.of(image.width, image.height)
+    private fun yuv420CenterSquareToArgb(image: Image, normalizedCrop: NormalizedCrop): Bitmap {
+        val crop = SquareCrop.of(image.width, image.height, normalizedCrop)
         val yPlane = image.planes[0]
         val uPlane = image.planes[1]
         val vPlane = image.planes[2]

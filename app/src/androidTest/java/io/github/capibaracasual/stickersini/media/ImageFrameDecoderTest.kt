@@ -39,7 +39,7 @@ class ImageFrameDecoderTest {
 
     /**
      * Fondo blanco con una marca roja bien adentro del cuadrado central que
-     * [CenterSquareCrop] va a conservar (el cuadrado central de 1200×1600
+     * [SquareCrop] va a conservar (el cuadrado central de 1200×1600
      * excluye franjas de 200 px arriba y abajo), cerca de su esquina
      * superior izquierda. Sirve para verificar que la corrección de EXIF
      * rota de verdad, no solo que las dimensiones den 512×512.

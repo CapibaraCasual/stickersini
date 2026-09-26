@@ -57,10 +57,22 @@ interno de una clase concreta viven en su KDoc, no acá.
    y se escalan/recortan a 512×512; los descartados no pagan ese costo,
    aunque el decode en sí ya ocurrió (las dependencias entre fotogramas P/B
    no permiten saltárselo).
-4. **Recorte de área** (RF-07) y **eliminación de fondo** (RF-08) — fuera del
-   alcance de la Fase 2, no implementados todavía. Cuando existan, se
-   insertan entre la conversión del paso 3 y el envoltorio del paso 5, sin
-   cambiar el contrato de salida.
+4. **Recorte de área** (`ui/CropScreen.kt` + `media/`, RF-07): el usuario
+   elige, con arrastre (mueve la ventana) y pellizco (cambia el tamaño),
+   qué cuadrado del contenido se convierte en sticker — por defecto, el
+   mismo cuadrado centrado que ya daba el recorte automático. El paso 3 ya
+   recibe ese recorte (`NormalizedCrop`, como fracciones relativas al
+   contenido, no píxeles absolutos: así una vista previa a otra resolución
+   que la decodificación final no desalinea el recorte) y lo aplica dentro
+   de la conversión, no como un paso aparte después: `YuvFrameConverter`
+   sigue recortando antes de convertir, como ya hacía con el recorte
+   automático. El usuario elige el recorte mirando el contenido ya
+   orientado correctamente (rotado); `displayedCropToNormalized`
+   (`media/DisplayedCrop.kt`) es quien lo convierte de vuelta a coordenadas
+   de origen, antes de rotar — necesario en cuanto el recorte deja de ser
+   centrado, porque un cuadrado descentrado sí se mueve al rotar (a
+   diferencia del centrado, que es invariante). **Eliminación de fondo**
+   (RF-08) sigue fuera del alcance, no implementada todavía.
 5. **Bitmap → `WebpFrame`**: cada bitmap ya en 512×512 `ARGB_8888` se
    envuelve en un `WebpFrame(bitmap, durationMs)`, con `durationMs` derivado
    del muestreo del paso 3 (RF-13: ≥8 ms por fotograma).

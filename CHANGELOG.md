@@ -14,6 +14,20 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   previa (`TrimScreen`, lee la duración real con `MediaMetadataRetriever`).
   `StickerConversionPipeline.convert` recibe ese tramo (`startMs`,
   `durationMs`) en vez de asumir siempre el segundo 0.
+- Encuadre con pellizco (RF-07): antes de convertir, el usuario mueve y
+  redimensiona con arrastre y pellizco el cuadrado que se convierte en
+  sticker (`CropScreen`), sobre una vista previa ya orientada
+  correctamente. Arranca centrado (mismo recorte automático de siempre)
+  mientras no se toque nada. El recorte viaja como fracciones relativas al
+  contenido (`NormalizedCrop`), no píxeles absolutos, para no desalinearse
+  si la vista previa y la decodificación final usan resoluciones
+  distintas; `displayedCropToNormalized` lo convierte de vuelta a
+  coordenadas anteriores a la rotación, así un recorte descentrado no
+  queda desplazado en contenido grabado o fotografiado en vertical.
+  `CenterSquareCrop` pasa a llamarse `SquareCrop` y ahora también acepta
+  un recorte propio, no solo el centrado — cambiado a la vez en sus dos
+  consumidores (`YuvFrameConverter`, `ImageFrameDecoder`) para que video e
+  imagen no terminen recortando distinto.
 
 ### Cambiado
 - Navegación entre pantallas migrada a Navigation Compose (ADR-0013),

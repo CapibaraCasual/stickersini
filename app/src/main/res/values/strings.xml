@@ -28,4 +28,8 @@
     <string name="trim_loading">Leyendo el video…</string>
     <string name="trim_selected_range">%1$s – %2$s (%3$s)</string>
     <string name="trim_continue_button">Continuar</string>
+
+    <string name="crop_title">Encuadrá el sticker</string>
+    <string name="crop_loading">Preparando la vista previa…</string>
+    <string name="crop_continue_button">Continuar</string>
 </resources>
