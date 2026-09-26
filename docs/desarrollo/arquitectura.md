@@ -102,3 +102,24 @@ interno de una clase concreta viven en su KDoc, no acá.
   declarado de la Fase 2. Hasta esa medición, cualquier número de tiempo del
   paso 3 es una expectativa, no un hecho, igual que le pasó al codificador
   antes de su primera medición en dispositivo real.
+
+## Gestión de packs (RF-15, `stickers/`)
+
+`StickerPackRepository` construye dos formas distintas del mismo dato, no
+una (ADR-0014):
+
+- **`ManagedStickerPack`** (`stickers/domain/`): un pack tal como está,
+  válido para WhatsApp o no todavía. Es lo que ve `ui/PackListScreen.kt` y
+  `ui/PackDetailScreen.kt` (RF-15) — un pack propio recién creado, con 0
+  stickers, es un `ManagedStickerPack` legítimo.
+- **`StickerPack`** (ya existía, sin cambios en su invariante de RF-16):
+  solo los packs que ya llegan al mínimo de 3. Es lo único que
+  `provider/StickerContentProvider.kt` conoce — nunca se relajó su
+  invariante para acomodar el caso nuevo, ver ADR-0014.
+
+`getAllManagedPacks()` es el único punto que arma un pack combinando su
+base (`assets/contents.json` vía `StickerPackAssetRepository`, o nada si es
+un pack propio) con sus extras (`filesDir/packs/<identifier>/index.json`
+vía `UserPackStickerRepository` — el mismo mecanismo para las dos cosas,
+ver ADR-0010); `getAllPacks()` filtra ese resultado a los que llegan a 3.
+Ningún otro lugar del código repite esa combinación.

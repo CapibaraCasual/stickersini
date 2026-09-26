@@ -53,13 +53,22 @@ publicada en Google Play.
   existente, sin UI todavía (selección de archivo, recorte de área), sin
   guardar el resultado como sticker de un pack ni entregarlo a WhatsApp —
   eso sigue en "Qué falta".
-- **Fase 3 — en curso: primer recorrido de punta a punta.** Elegir un
-  video o una imagen → **selector de tramo (RF-06) si es video** →
+- **Fase 3 — en curso: recorrido de punta a punta con gestión de packs.**
+  Elegir un video o una imagen → **selector de tramo (RF-06) si es video** →
   **encuadre con pellizco (RF-07)** → conversión con progreso real → vista
-  previa (un solo fotograma, no animada todavía) → guardar. El resultado
-  se guarda siempre en uno de los dos packs semilla (estático o animado
-  según corresponda, ADR-0010) — no hay todavía un pack propio con nombre
-  (RF-15).
+  previa (un solo fotograma, no animada todavía) → **elegir en qué pack
+  guardarlo (RF-15)** → guardar.
+  - **Gestión de packs (RF-15):** una pantalla nueva lista todos los packs
+    (los dos semilla más los propios), deja crear uno con nombre y tipo
+    (animado/estático, RF-18), renombrarlo, eliminarlo y quitarle un
+    sticker — ninguna de esas tres últimas acciones sobre un pack semilla,
+    que sigue siendo de solo lectura (ADR-0004, ADR-0014). Un pack propio
+    recién creado (o que bajó de 3 stickers al quitarle uno) queda
+    invisible para WhatsApp hasta volver a llegar al mínimo de RF-16, sin
+    dejar de ser editable desde esta pantalla (ADR-0014) — la app avisa
+    antes de eliminar un pack que ya se hubiera agregado a WhatsApp, porque
+    el contrato WAStickerApps no tiene forma de retirarlo del lado de
+    WhatsApp.
   - Navegación entre pasos con Navigation Compose (ADR-0013), reemplazando
     el booleano a mano que conmutaba entre las dos únicas pantallas de
     antes: necesario en cuanto el flujo de creación pasó a tener más de un
@@ -96,11 +105,8 @@ publicada en Google Play.
 
 ### Qué falta
 
-- **Fase 3 — el resto de la interfaz**, sobre el recorrido mínimo que ya
+- **Fase 3 — lo que queda de la interfaz**, sobre el recorrido que ya
   funciona:
-  - Gestión de stickers y packs (RF-15, RF-16): ver los stickers ya
-    creados, crear packs propios con nombre, renombrarlos, eliminar
-    stickers. Hoy no existe ninguna pantalla para esto.
   - **Trabajo de diseño de la interfaz, no solo de funciones.** Lo que hay
     hoy es funcional pero tosco. El criterio para el guardado: que nunca se
     sienta como un trámite administrativo (el mecanismo de packs semilla ya

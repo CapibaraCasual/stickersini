@@ -9,9 +9,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import io.github.capibaracasual.stickersini.media.MAX_CLIP_DURATION_MS
 import io.github.capibaracasual.stickersini.media.NormalizedCrop
 
@@ -21,6 +23,10 @@ private object Routes {
     const val TRIM = "create/trim"
     const val CROP = "create/crop"
     const val CONVERT = "create/convert"
+    const val PACKS = "packs"
+    const val PACK_DETAIL = "packs/{identifier}"
+
+    fun packDetail(identifier: String) = "packs/$identifier"
 }
 
 /**
@@ -45,7 +51,26 @@ fun StickersiniNavHost(navController: NavHostController = rememberNavController(
 
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
-            AddSeedPackScreen(onCreateSticker = { navController.navigate(Routes.PICK) })
+            AddSeedPackScreen(
+                onCreateSticker = { navController.navigate(Routes.PICK) },
+                onManagePacks = { navController.navigate(Routes.PACKS) },
+            )
+        }
+
+        composable(Routes.PACKS) {
+            PackListScreen(
+                onBack = { navController.popBackStack() },
+                onOpenPack = { identifier -> navController.navigate(Routes.packDetail(identifier)) },
+            )
+        }
+
+        composable(Routes.PACK_DETAIL, arguments = listOf(navArgument("identifier") { type = NavType.StringType })) { backStackEntry ->
+            val identifier = checkNotNull(backStackEntry.arguments?.getString("identifier"))
+            PackDetailScreen(
+                identifier = identifier,
+                onBack = { navController.popBackStack() },
+                onPackDeleted = { navController.popBackStack(Routes.PACKS, inclusive = false) },
+            )
         }
 
         composable(Routes.PICK) {

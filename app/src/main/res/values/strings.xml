@@ -32,4 +32,35 @@
     <string name="crop_title">Encuadrá el sticker</string>
     <string name="crop_loading">Preparando la vista previa…</string>
     <string name="crop_continue_button">Continuar</string>
+
+    <string name="manage_packs_button">Ver mis packs</string>
+
+    <string name="create_sticker_choose_pack_title">¿En qué pack lo guardo?</string>
+    <string name="pack_choice_label">%1$s (%2$d)</string>
+    <string name="pack_missing_for_whatsapp">Faltan %1$d para poder sumarlo a WhatsApp (mínimo 3).</string>
+
+    <string name="packs_title">Mis packs</string>
+    <string name="packs_create_button">Crear pack</string>
+    <string name="packs_empty">Todavía no creaste ningún pack propio.</string>
+    <string name="packs_seed_badge">Semilla</string>
+    <string name="packs_sticker_count">%1$d stickers</string>
+    <string name="packs_missing_count">%1$d/3 · faltan %2$d</string>
+    <string name="packs_create_dialog_title">Nuevo pack</string>
+    <string name="packs_create_dialog_name_label">Nombre</string>
+    <string name="packs_create_dialog_type_static">Estático</string>
+    <string name="packs_create_dialog_type_animated">Animado</string>
+    <string name="packs_create_dialog_confirm">Crear</string>
+    <string name="packs_dialog_cancel">Cancelar</string>
+
+    <string name="pack_detail_rename_action">Renombrar</string>
+    <string name="pack_detail_rename_dialog_title">Renombrar pack</string>
+    <string name="pack_detail_rename_dialog_confirm">Guardar</string>
+    <string name="pack_detail_remove_sticker_action">Quitar</string>
+    <string name="pack_detail_remove_sticker_confirm_title">¿Quitar este sticker?</string>
+    <string name="pack_detail_remove_sticker_confirm_message">Se borra de este pack. No se puede deshacer.</string>
+    <string name="pack_detail_delete_pack_button">Eliminar pack</string>
+    <string name="pack_detail_delete_pack_confirm_title">¿Eliminar este pack?</string>
+    <string name="pack_detail_delete_pack_confirm_message">Se borran sus stickers de esta app. Si ya lo agregaste a WhatsApp, puede seguir apareciendo ahí — para sacarlo del todo hay que quitarlo también desde los ajustes de stickers de WhatsApp.</string>
+    <string name="pack_detail_delete_pack_confirm_button">Eliminar</string>
+    <string name="pack_detail_empty">Este pack todavía no tiene stickers.</string>
 </resources>

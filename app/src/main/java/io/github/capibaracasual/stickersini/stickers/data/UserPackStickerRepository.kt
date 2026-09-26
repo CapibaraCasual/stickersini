@@ -1,19 +1,30 @@
 package io.github.capibaracasual.stickersini.stickers.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.core.graphics.scale
+import io.github.capibaracasual.stickersini.media.SquareCrop
 import io.github.capibaracasual.stickersini.stickers.domain.Sticker
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
+/** RF-14: el ícono de bandeja de un pack propio es PNG de 96×96, igual que el de un pack semilla. */
+private const val TRAY_ICON_SIZE = 96
+private const val TRAY_FILE_NAME = "tray.png"
+
 /**
- * Persiste los stickers que el usuario agrega a un pack existente (hoy,
- * siempre uno de los dos packs semilla — estático o animado — ver
- * ADR-0010). Guarda solo la *extensión* sobre la definición base del pack
- * (que sigue viniendo de `assets/contents.json` sin cambios): un índice
- * JSON con la misma forma que ya usa esa definición, más los `.webp` reales
- * en un directorio propio por pack.
+ * Persiste los stickers que el usuario agrega a un pack: un índice JSON con
+ * la misma forma que usa `assets/contents.json`, más los `.webp` reales en
+ * un directorio propio por pack. Sirve tanto para la *extensión* de un pack
+ * semilla (que sigue teniendo su definición base en `assets/`, ADR-0010)
+ * como para un pack propio entero (RF-15, sin ninguna base en `assets/` —
+ * ver [UserPackManifestRepository] para el nombre/tipo de esos packs): este
+ * repositorio no distingue entre los dos casos, un identificador es un
+ * identificador.
  *
  * `filesDir/packs/<identifier>/index.json` — lista de stickers de ese pack.
  * `filesDir/packs/<identifier>/<archivo>.webp` — bytes de cada uno.
@@ -64,6 +75,38 @@ class UserPackStickerRepository(private val context: Context) {
     }
 
     fun stickerFile(identifier: String, imageFileName: String): File = File(packDir(identifier), imageFileName)
+
+    /** RF-15: saca [imageFileName] del índice y borra su archivo. Sin efecto si no estaba (no es un extra de este pack). */
+    fun removeSticker(identifier: String, isAnimated: Boolean, imageFileName: String) {
+        val remaining = getExtraStickers(identifier, isAnimated).filterNot { it.imageFileName == imageFileName }
+        writeIndexAtomically(identifier, remaining)
+        stickerFile(identifier, imageFileName).delete()
+    }
+
+    /**
+     * RF-14: si el pack todavía no tiene ícono de bandeja, lo genera a partir
+     * de [representativeWebpBytes] (recorte centrado + escalado a
+     * [TRAY_ICON_SIZE]×[TRAY_ICON_SIZE], igual que el recorte automático de
+     * un sticker — [SquareCrop.of]). Con un WebP animado,
+     * `BitmapFactory.decodeByteArray` ya da su primer fotograma, sin
+     * decodificación especial. Solo aplica a un pack propio (RF-15): los
+     * packs semilla ya traen su `tray.png` en `assets/` (ADR-0004).
+     */
+    fun ensureTrayIcon(identifier: String, representativeWebpBytes: ByteArray) {
+        val trayFile = File(packDir(identifier), TRAY_FILE_NAME)
+        if (trayFile.exists()) return
+        val decoded = BitmapFactory.decodeByteArray(representativeWebpBytes, 0, representativeWebpBytes.size) ?: return
+        val crop = SquareCrop.of(decoded.width, decoded.height)
+        val cropped = Bitmap.createBitmap(decoded, crop.xOffset, crop.yOffset, crop.size, crop.size)
+        val scaled = cropped.scale(TRAY_ICON_SIZE, TRAY_ICON_SIZE)
+        packDir(identifier).mkdirs()
+        FileOutputStream(trayFile).use { out -> scaled.compress(Bitmap.CompressFormat.PNG, 100, out) }
+    }
+
+    /** RF-15: borra el pack propio entero (sus stickers, índice e ícono de bandeja) al eliminarlo. */
+    fun deletePackDirectory(identifier: String) {
+        packDir(identifier).deleteRecursively()
+    }
 
     private fun writeIndexAtomically(identifier: String, stickers: List<Sticker>) {
         val array = JSONArray()

@@ -28,6 +28,22 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   un recorte propio, no solo el centrado — cambiado a la vez en sus dos
   consumidores (`YuvFrameConverter`, `ImageFrameDecoder`) para que video e
   imagen no terminen recortando distinto.
+- Gestión de packs (RF-15): pantalla nueva (`PackListScreen`/
+  `PackDetailScreen`) para ver todos los packs (semilla y propios), crear
+  uno con nombre y tipo (animado/estático, RF-18), renombrarlo, eliminarlo
+  y quitarle un sticker. Al guardar un sticker nuevo, ahora se elige en qué
+  pack (el semilla correspondiente o uno propio del mismo tipo con lugar —
+  RF-16), en vez de ir siempre al semilla.
+  - ADR-0014: un pack propio por debajo del mínimo de RF-16 (incluido uno
+    recién creado, con 0 stickers) queda invisible para
+    `StickerContentProvider`/WhatsApp hasta llegar a 3, sin dejar de
+    aparecer en la pantalla de gestión (`ManagedStickerPack`, sin esa
+    invariante). Eliminar un pack no puede retirarlo de WhatsApp si ya se
+    había confirmado ahí (el contrato WAStickerApps no tiene esa acción):
+    la app lo avisa antes de borrar. Los dos packs semilla quedan de solo
+    lectura en la pantalla de gestión.
+  - El ícono de bandeja de un pack propio (RF-14, PNG 96×96) se genera
+    solo, a partir del primer sticker que se le agrega.
 
 ### Cambiado
 - Navegación entre pantallas migrada a Navigation Compose (ADR-0013),

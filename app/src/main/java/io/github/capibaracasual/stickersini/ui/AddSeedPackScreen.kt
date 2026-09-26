@@ -29,9 +29,9 @@ import io.github.capibaracasual.stickersini.ui.theme.Spacing
 private const val SEED_PACK_IDENTIFIER = SeedPacks.STATIC_IDENTIFIER
 private const val SEED_PACK_NAME = SeedPacks.STATIC_NAME
 
-/** Pantalla de inicio ("home"): añadir el pack semilla (Fase 0) o pasar al flujo de creación. */
+/** Pantalla de inicio ("home"): añadir el pack semilla (Fase 0), pasar al flujo de creación, o gestionar los packs propios (RF-15). */
 @Composable
-fun AddSeedPackScreen(onCreateSticker: () -> Unit) {
+fun AddSeedPackScreen(onCreateSticker: () -> Unit, onManagePacks: () -> Unit) {
     val context = LocalContext.current
     var resultMessage by remember { mutableStateOf<String?>(null) }
 
@@ -70,6 +70,10 @@ fun AddSeedPackScreen(onCreateSticker: () -> Unit) {
         ) {
             Button(onClick = onCreateSticker) {
                 Text(text = stringResource(R.string.create_sticker_button))
+            }
+
+            Button(onClick = onManagePacks) {
+                Text(text = stringResource(R.string.manage_packs_button))
             }
 
             Text(text = stringResource(R.string.add_pack_title), style = MaterialTheme.typography.titleLarge)
