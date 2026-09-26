@@ -4,8 +4,8 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -14,13 +14,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,52 +41,41 @@ import io.github.capibaracasual.stickersini.media.StickerConversionPipeline
 import io.github.capibaracasual.stickersini.provider.WhatsAppStickerIntent
 import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
 import io.github.capibaracasual.stickersini.stickers.domain.SeedPacks
+import io.github.capibaracasual.stickersini.ui.theme.Spacing
 import io.github.capibaracasual.stickersini.webp.WebpEncodeResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Recorrido mínimo de Fase 3 (elegir archivo → vista previa → guardar), sin
- * recorte de tramo (RF-06) ni de área (RF-07) todavía: siempre procesa
- * desde el segundo 0 de un video y recorta al cuadrado central, tal como ya
- * hace [StickerConversionPipeline]. El resultado se agrega siempre a uno de
- * los dos packs semilla (RF-18, ver [SeedPacks]), no a un pack propio
- * nuevo: no hay todavía una pantalla para crear o elegir packs (RF-15).
+ * Último tramo del flujo de creación: convierte (con recorte automático al
+ * centro, sin tramo propio todavía — RF-06/RF-07 pendientes), muestra vista
+ * previa (RF-09) y guarda en el pack semilla que corresponda (RF-18, ver
+ * [SeedPacks]): no hay todavía una pantalla para elegir o crear un pack
+ * propio (RF-15).
  */
 @Composable
-fun CreateStickerScreen(onBack: () -> Unit) {
+fun ConvertPreviewSaveScreen(
+    uri: Uri,
+    isVideo: Boolean,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember { StickerPackRepository(context.applicationContext) }
 
-    var isVideo by remember { mutableStateOf(false) }
     var stage by remember { mutableStateOf<ConversionStage?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var pendingResult by remember { mutableStateOf<WebpEncodeResult?>(null) }
     var savedPackName by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    fun reset() {
-        stage = null
-        previewBitmap = null
-        pendingResult = null
-        savedPackName = null
-        errorMessage = null
-    }
-
-    val pickMedia = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        reset()
-        val mimeType = context.contentResolver.getType(uri).orEmpty()
-        isVideo = mimeType.startsWith("video/")
+    LaunchedEffect(uri) {
         stage = if (isVideo) ConversionStage.DecodingVideo(0, 1) else ConversionStage.DecodingImage
-        scope.launch(Dispatchers.Default) {
+        withContext(Dispatchers.Default) {
             try {
                 val result = StickerConversionPipeline.convert(context, uri, isVideo) { newStage -> stage = newStage }
-                val bitmap = BitmapFactory.decodeByteArray(result.bytes, 0, result.bytes.size)
-                previewBitmap = bitmap
+                previewBitmap = BitmapFactory.decodeByteArray(result.bytes, 0, result.bytes.size)
                 pendingResult = result
             } catch (error: Exception) {
                 errorMessage = error.message ?: error.toString()
@@ -94,49 +87,47 @@ fun CreateStickerScreen(onBack: () -> Unit) {
 
     Scaffold { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
+            verticalArrangement = Arrangement.spacedBy(Spacing.medium),
         ) {
             TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
-            Text(text = stringResource(R.string.create_sticker_title), style = MaterialTheme.typography.titleLarge)
 
-            Button(onClick = {
-                pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-            }) {
-                Text(text = stringResource(R.string.create_sticker_pick_button))
-            }
-
-            stage?.let { currentStage ->
-                ConversionProgress(currentStage)
-            }
+            stage?.let { currentStage -> ConversionProgress(currentStage) }
 
             errorMessage?.let { message ->
                 Text(text = stringResource(R.string.create_sticker_error, message), style = MaterialTheme.typography.bodyMedium)
             }
 
             previewBitmap?.let { bitmap ->
-                Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.size(160.dp))
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.size(160.dp),
+                )
 
                 if (savedPackName == null) {
-                    Button(onClick = {
-                        val result = pendingResult ?: return@Button
-                        stage = ConversionStage.Saving
-                        scope.launch(Dispatchers.Default) {
-                            try {
-                                val pack = repository.addStickerToSeedPack(
-                                    isAnimated = isVideo,
-                                    webpBytes = result.bytes,
-                                    emojis = emptyList(),
-                                    accessibilityText = "",
-                                )
-                                savedPackName = pack.name
-                            } catch (error: Exception) {
-                                errorMessage = error.message ?: error.toString()
-                            } finally {
-                                stage = null
+                    Button(
+                        onClick = {
+                            val result = pendingResult ?: return@Button
+                            stage = ConversionStage.Saving
+                            scope.launch(Dispatchers.Default) {
+                                try {
+                                    val pack = repository.addStickerToSeedPack(
+                                        isAnimated = isVideo,
+                                        webpBytes = result.bytes,
+                                        emojis = emptyList(),
+                                        accessibilityText = "",
+                                    )
+                                    savedPackName = pack.name
+                                } catch (error: Exception) {
+                                    errorMessage = error.message ?: error.toString()
+                                } finally {
+                                    stage = null
+                                }
                             }
-                        }
-                    }) {
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Text(text = stringResource(R.string.create_sticker_save_button))
                     }
                 }
@@ -144,8 +135,22 @@ fun CreateStickerScreen(onBack: () -> Unit) {
 
             savedPackName?.let { packName ->
                 val identifier = if (isVideo) SeedPacks.ANIMATED_IDENTIFIER else SeedPacks.STATIC_IDENTIFIER
-                Text(text = stringResource(R.string.create_sticker_saved, packName), style = MaterialTheme.typography.bodyLarge)
-                AddToWhatsAppButton(identifier = identifier, packName = packName)
+                Card(
+                    shape = RoundedCornerShape(Spacing.small),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(Spacing.medium),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.small),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.create_sticker_saved, packName),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        AddToWhatsAppButton(identifier = identifier, packName = packName)
+                    }
+                }
             }
         }
     }
@@ -189,19 +194,22 @@ private fun AddToWhatsAppButton(identifier: String, packName: String) {
         resultMessage = if (result.resultCode == Activity.RESULT_OK) successMessage else null
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(onClick = {
-            if (!WhatsAppStickerIntent.isWhatsAppInstalled(context)) {
-                resultMessage = whatsAppNotInstalledMessage
-                return@Button
-            }
-            val intent = WhatsAppStickerIntent.buildAddPackIntent(context, identifier, packName)
-            try {
-                launcher.launch(intent)
-            } catch (error: ActivityNotFoundException) {
-                resultMessage = noActivityMessage
-            }
-        }) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
+        Button(
+            onClick = {
+                if (!WhatsAppStickerIntent.isWhatsAppInstalled(context)) {
+                    resultMessage = whatsAppNotInstalledMessage
+                    return@Button
+                }
+                val intent = WhatsAppStickerIntent.buildAddPackIntent(context, identifier, packName)
+                try {
+                    launcher.launch(intent)
+                } catch (error: ActivityNotFoundException) {
+                    resultMessage = noActivityMessage
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text(text = stringResource(R.string.add_pack_button))
         }
         resultMessage?.let { message -> Text(text = message) }

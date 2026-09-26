@@ -60,6 +60,10 @@ publicada en Google Play.
   "Qué falta"). El resultado se guarda siempre en uno de los dos packs
   semilla (estático o animado según corresponda, ADR-0010) — no hay
   todavía un pack propio con nombre (RF-15).
+  - Navegación entre pasos con Navigation Compose (ADR-0013), reemplazando
+    el booleano a mano que conmutaba entre las dos únicas pantallas de
+    antes: necesario en cuanto el flujo de creación empezó a sumar pasos
+    propios.
   - `StickerConversionPipeline` reporta avance real en cada etapa
     (fotogramas decodificados, intento de codificación), no un indicador
     indeterminado.

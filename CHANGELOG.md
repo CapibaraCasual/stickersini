@@ -7,6 +7,12 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Cambiado
+- Navegación entre pantallas migrada a Navigation Compose (ADR-0013),
+  reemplazando el booleano a mano que conmutaba entre pantallas: prepara
+  el terreno para que el flujo de creación sume pasos propios (tramo,
+  recorte de área) sin acumular más booleanos/enums manuales.
+
 ## [0.5.0-alpha] - 2026-09-25
 
 Primer recorrido de punta a punta de la Fase 3 (elegir archivo → vista
