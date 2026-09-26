@@ -1,7 +1,7 @@
 # Requisitos
 
 **Proyecto:** Stickersini
-**Versión del documento:** 1.1 · **Fecha:** 2026-09-24
+**Versión del documento:** 1.2 · **Fecha:** 2026-09-26
 
 Este documento es la referencia de qué debe hacer el sistema. No describe
 *cómo* se implementa: eso vive en `arquitectura.md` y en `decisions/`.
@@ -78,6 +78,12 @@ enriquecido), soporte a mensajeros distintos de WhatsApp.
 |---|---|
 | **RF-23** | El sistema debe ofrecer una burbuja flotante opcional que permita iniciar y detener la captura de pantalla sin volver a la aplicación. |
 | **RF-24** | La burbuja flotante debe poder desactivarse por completo desde los ajustes. |
+
+### Procesamiento por lotes
+
+| ID | Requisito |
+|---|---|
+| **RF-25** | El sistema debe permitir seleccionar varios archivos de una vez (video o imagen) y convertirlos uno tras otro en una cola, sin repetir el flujo de edición completo manualmente para cada uno. |
 
 ---
 

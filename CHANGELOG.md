@@ -7,6 +7,13 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.6.0-alpha] - 2026-09-26
+
+Cierra el resto de la interfaz de Fase 3 que quedaba pendiente desde la
+versión anterior: selector de tramo (RF-06), encuadre con pellizco (RF-07)
+y gestión de packs (RF-15), sobre la navegación migrada a Navigation
+Compose (ADR-0013).
+
 ### Añadido
 - Selector de tramo de video (RF-06): antes de convertir, el usuario elige
   con un `RangeSlider` de Material 3 qué ventana de hasta 10 s del video
@@ -50,6 +57,18 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   reemplazando el booleano a mano que conmutaba entre pantallas: prepara
   el terreno para que el flujo de creación sume pasos propios (tramo,
   recorte de área) sin acumular más booleanos/enums manuales.
+
+### Corregido
+- En un video vertical (más alto que ancho), el botón "Continuar" de
+  `CropScreen` quedaba fuera de la pantalla, sin forma de llegar a él: el
+  cuadro de recorte crecía con la proporción del contenido
+  (`Modifier.aspectRatio`) sin límite de alto, y el botón, al final de una
+  `Column` sin scroll, terminaba empujado más allá del borde inferior.
+  Pasa a `Scaffold.bottomBar` (siempre visible, no depende de cuánto mida
+  el contenido de arriba) y el cuadro de recorte se ajusta dentro del
+  espacio que le queda (`BoxWithConstraints`, ajustando tanto a lo ancho
+  como a lo alto — igual que `ContentScale.Fit`), sea cual sea la
+  proporción del video o la imagen.
 
 ## [0.5.0-alpha] - 2026-09-25
 

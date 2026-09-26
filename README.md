@@ -18,7 +18,7 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.5.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.6.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
 ### Qué funciona ya
@@ -37,7 +37,7 @@ publicada en Google Play.
   fotogramas listos para `:webp` (ADR-0008: ruta CPU vía `ImageReader`,
   confirmada en dispositivo real, sin necesitar GPU; ADR-0009: fps de
   prefiltro derivado del piso de ADR-0007). Video e imagen comparten el
-  mismo recorte al cuadrado central (`CenterSquareCrop`) y el mismo
+  mismo recorte al cuadrado central (`SquareCrop`) y el mismo
   `WebpAnimEncoder`: un sticker estático (RF-11) es una animación de un solo
   fotograma, no un codificador aparte (ADR-0002; medido que el contenedor de
   animación no agrega un sobrecosto relevante contra el límite de 100 KB —
@@ -102,6 +102,12 @@ publicada en Google Play.
     Medido en un solo dispositivo hasta ahora, con margen ajustado (12%)
     en los clips de 5 y 10 s — ver `docs/desarrollo/pruebas.md` para por
     qué eso importa antes de sumar una segunda fila de hardware.
+    **Este valor no se toca sin volver a medir**: 8 sale de la medición de
+    5 corridas de ADR-0012, y 9 ya rompía el tramo de 5 s en 2 de 5 —
+    subirlo a mano incumpliría RNF-08 a propósito. La única vía legítima
+    para más fluidez es abaratar el decode todavía más (mismo camino que
+    ya funcionó una vez: mover la conversión YUV→RGB a `:yuv`, ADR-0011),
+    no cambiar el número.
 
 ### Qué falta
 
@@ -116,6 +122,13 @@ publicada en Google Play.
   Note 14; el margen que deja 8 fps de prefiltro (ADR-0012) es ajustado
   (12%) en dos de los tres casos medidos, y podría no sostenerse en un
   dispositivo más lento.
+- **Backlog de interfaz, sin fecha:**
+  - Reproducir el video en la pantalla de tramo (`TrimScreen`), para elegir
+    el fragmento viéndolo en vez de solo por segundos.
+  - Poder rotar el contenido durante el encuadre (`CropScreen`), además de
+    moverlo y ampliarlo.
+  - Seleccionar varios archivos y editarlos uno tras otro en cola (RF-25,
+    agregado a `docs/desarrollo/requisitos.md` en esta misma tanda).
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
   - Issue de los stickers semilla: los placeholders actuales (3 estáticos,

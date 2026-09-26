@@ -10,11 +10,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntSize
 import io.github.capibaracasual.stickersini.R
@@ -114,79 +117,17 @@ fun CropScreen(
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
-            verticalArrangement = Arrangement.spacedBy(Spacing.medium),
-        ) {
-            TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
-            Text(text = stringResource(R.string.crop_title), style = MaterialTheme.typography.titleLarge)
+    // "Continuar" vive en bottomBar, no al final de la Column: un contenido
+    // vertical (video grabado en mano, retrato) hace que el cuadro de
+    // recorte de abajo pida más alto que ancho, y si el botón fuera el
+    // último elemento de una Column sin scroll quedaba empujado fuera de
+    // pantalla, sin forma de llegar a él. El bottomBar de Scaffold no
+    // depende de cuánto mida el contenido de arriba.
+    val currentSource = source
 
-            errorMessage?.let { message ->
-                Text(text = stringResource(R.string.create_sticker_error, message), style = MaterialTheme.typography.bodyMedium)
-            }
-
-            val currentSource = source
-            if (currentSource == null) {
-                if (errorMessage == null) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text(text = stringResource(R.string.crop_loading), style = MaterialTheme.typography.bodyMedium)
-                }
-            } else {
-                val minCropSize = MIN_CROP_FRACTION * minOf(currentSource.preview.width, currentSource.preview.height)
-                val scale = if (containerSizePx.width > 0) containerSizePx.width / currentSource.preview.width.toFloat() else 0f
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(currentSource.preview.width.toFloat() / currentSource.preview.height.toFloat())
-                        .onSizeChanged { containerSizePx = it }
-                        .pointerInput(currentSource) {
-                            detectTransformGestures { centroid, pan, zoom, _ ->
-                                if (containerSizePx.width == 0) return@detectTransformGestures
-                                val gestureScale = containerSizePx.width / currentSource.preview.width.toFloat()
-                                val panContent = pan / gestureScale
-
-                                var offsetX = cropOffsetX + panContent.x
-                                var offsetY = cropOffsetY + panContent.y
-                                var size = cropSize
-
-                                if (zoom != 1f) {
-                                    val focalX = centroid.x / gestureScale
-                                    val focalY = centroid.y / gestureScale
-                                    val maxSize = minOf(currentSource.preview.width, currentSource.preview.height).toFloat()
-                                    val newSize = (size / zoom).coerceIn(minCropSize, maxSize)
-                                    offsetX = focalX - (focalX - offsetX) * (newSize / size)
-                                    offsetY = focalY - (focalY - offsetY) * (newSize / size)
-                                    size = newSize
-                                }
-
-                                cropSize = size
-                                cropOffsetX = offsetX.coerceIn(0f, (currentSource.preview.width - size).coerceAtLeast(0f))
-                                cropOffsetY = offsetY.coerceIn(0f, (currentSource.preview.height - size).coerceAtLeast(0f))
-                            }
-                        },
-                ) {
-                    Image(bitmap = currentSource.preview.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
-                    val primaryColor = MaterialTheme.colorScheme.primary
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val boxX = cropOffsetX * scale
-                        val boxY = cropOffsetY * scale
-                        val boxSize = cropSize * scale
-                        val scrim = Color.Black.copy(alpha = 0.55f)
-                        drawRect(scrim, topLeft = Offset(0f, 0f), size = Size(size.width, boxY))
-                        drawRect(scrim, topLeft = Offset(0f, boxY + boxSize), size = Size(size.width, size.height - boxY - boxSize))
-                        drawRect(scrim, topLeft = Offset(0f, boxY), size = Size(boxX, boxSize))
-                        drawRect(scrim, topLeft = Offset(boxX + boxSize, boxY), size = Size(size.width - boxX - boxSize, boxSize))
-                        drawRect(
-                            color = primaryColor,
-                            topLeft = Offset(boxX, boxY),
-                            size = Size(boxSize, boxSize),
-                            style = Stroke(width = 4f),
-                        )
-                    }
-                }
-
+    Scaffold(
+        bottomBar = {
+            if (currentSource != null) {
                 Button(
                     onClick = {
                         val normalized = displayedCropToNormalized(
@@ -199,9 +140,103 @@ fun CropScreen(
                         )
                         onContinue(normalized)
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(Spacing.large),
                 ) {
                     Text(text = stringResource(R.string.crop_continue_button))
+                }
+            }
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
+            verticalArrangement = Arrangement.spacedBy(Spacing.medium),
+        ) {
+            TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
+            Text(text = stringResource(R.string.crop_title), style = MaterialTheme.typography.titleLarge)
+
+            errorMessage?.let { message ->
+                Text(text = stringResource(R.string.create_sticker_error, message), style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (currentSource == null) {
+                if (errorMessage == null) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Text(text = stringResource(R.string.crop_loading), style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                val minCropSize = MIN_CROP_FRACTION * minOf(currentSource.preview.width, currentSource.preview.height)
+                val scale = if (containerSizePx.width > 0) containerSizePx.width / currentSource.preview.width.toFloat() else 0f
+
+                // El cuadro de recorte ocupa como mucho el espacio que le
+                // queda a la Column (weight(1f)) y, dentro de eso, se ajusta
+                // para entrar tanto a lo ancho como a lo alto (igual que
+                // ContentScale.Fit): la proporción del contenido nunca
+                // empuja al botón de "Continuar" fuera de pantalla, sea
+                // paisaje o retrato.
+                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    val contentAspect = currentSource.preview.width.toFloat() / currentSource.preview.height.toFloat()
+                    val maxWidthPx = constraints.maxWidth.toFloat()
+                    val maxHeightPx = constraints.maxHeight.toFloat()
+                    var boxWidthPx = maxWidthPx
+                    var boxHeightPx = boxWidthPx / contentAspect
+                    if (boxHeightPx > maxHeightPx) {
+                        boxHeightPx = maxHeightPx
+                        boxWidthPx = boxHeightPx * contentAspect
+                    }
+                    val density = LocalDensity.current
+                    val boxWidthDp = with(density) { boxWidthPx.toDp() }
+                    val boxHeightDp = with(density) { boxHeightPx.toDp() }
+
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(boxWidthDp, boxHeightDp)
+                            .onSizeChanged { containerSizePx = it }
+                            .pointerInput(currentSource) {
+                                detectTransformGestures { centroid, pan, zoom, _ ->
+                                    if (containerSizePx.width == 0) return@detectTransformGestures
+                                    val gestureScale = containerSizePx.width / currentSource.preview.width.toFloat()
+                                    val panContent = pan / gestureScale
+
+                                    var offsetX = cropOffsetX + panContent.x
+                                    var offsetY = cropOffsetY + panContent.y
+                                    var size = cropSize
+
+                                    if (zoom != 1f) {
+                                        val focalX = centroid.x / gestureScale
+                                        val focalY = centroid.y / gestureScale
+                                        val maxSize = minOf(currentSource.preview.width, currentSource.preview.height).toFloat()
+                                        val newSize = (size / zoom).coerceIn(minCropSize, maxSize)
+                                        offsetX = focalX - (focalX - offsetX) * (newSize / size)
+                                        offsetY = focalY - (focalY - offsetY) * (newSize / size)
+                                        size = newSize
+                                    }
+
+                                    cropSize = size
+                                    cropOffsetX = offsetX.coerceIn(0f, (currentSource.preview.width - size).coerceAtLeast(0f))
+                                    cropOffsetY = offsetY.coerceIn(0f, (currentSource.preview.height - size).coerceAtLeast(0f))
+                                }
+                            },
+                    ) {
+                        Image(bitmap = currentSource.preview.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize())
+                        val primaryColor = MaterialTheme.colorScheme.primary
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val boxX = cropOffsetX * scale
+                            val boxY = cropOffsetY * scale
+                            val boxSize = cropSize * scale
+                            val scrim = Color.Black.copy(alpha = 0.55f)
+                            drawRect(scrim, topLeft = Offset(0f, 0f), size = Size(size.width, boxY))
+                            drawRect(scrim, topLeft = Offset(0f, boxY + boxSize), size = Size(size.width, size.height - boxY - boxSize))
+                            drawRect(scrim, topLeft = Offset(0f, boxY), size = Size(boxX, boxSize))
+                            drawRect(scrim, topLeft = Offset(boxX + boxSize, boxY), size = Size(size.width - boxX - boxSize, boxSize))
+                            drawRect(
+                                color = primaryColor,
+                                topLeft = Offset(boxX, boxY),
+                                size = Size(boxSize, boxSize),
+                                style = Stroke(width = 4f),
+                            )
+                        }
+                    }
                 }
             }
         }
