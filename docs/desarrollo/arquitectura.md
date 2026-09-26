@@ -32,15 +32,20 @@ interno de una clase concreta viven en su KDoc, no acá.
 
 1. **Selección del archivo** (`ui/`): el usuario elige un video del
    almacenamiento mediante Storage Access Framework.
-2. **Recorte temporal** (`ui/` + `media/`, RF-06): el usuario elige un tramo
-   de hasta 10 s. La UI de recorte queda fuera del alcance de la Fase 2; el
-   decodificador sí debe aceptar de entrada un rango `[startMs, endMs]`.
+2. **Recorte temporal** (`ui/TrimScreen.kt` + `media/`, RF-06): el usuario
+   elige un tramo de hasta 10 s con un `RangeSlider` sobre la duración real
+   del video (leída con `MediaMetadataRetriever`, ver ADR-0013). El
+   decodificador acepta de entrada ese rango (`startMs`, `durationMs`);
+   `StickerConversionPipeline.convert` los recibe de quien llama (la
+   navegación entre "elegir archivo" → "tramo" → "convertir/guardar" vive
+   en `ui/StickersiniNavHost.kt`) en vez de asumir `startMs = 0` como hacía
+   el recorrido mínimo de la Fase 3.
 3. **Decodificación y selección de fotogramas** (`media/`, ADR-0002,
    [ADR-0008](../../decisions/0008-decodificacion-de-video-a-fotogramas.md)):
    `MediaCodec` decodifica el video en un tramo `[startMs, startMs +
-   durationMs]`, con `durationMs` recortado a 10 s (RF-06). Sin UI de
-   recorte todavía, esta fase siempre pide `startMs = 0`, pero el
-   decodificador ya acepta cualquier inicio: se posiciona en el keyframe
+   durationMs]`, con `durationMs` recortado a 10 s (RF-06), ambos elegidos
+   ahora por el paso 2. El decodificador acepta cualquier inicio: se
+   posiciona en el keyframe
    anterior o igual a `startMs` y descarta, sin convertir, lo decodificado
    antes de ese punto. La salida va hacia la superficie de un `ImageReader`
    en `YUV_420_888`. El decodificador entrega fotogramas a la tasa original

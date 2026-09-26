@@ -23,4 +23,9 @@
     <string name="create_sticker_stage_decoding_image">Decodificando imagen…</string>
     <string name="create_sticker_stage_encoding">Codificando WebP (intento %1$d)…</string>
     <string name="create_sticker_stage_saving">Guardando…</string>
+
+    <string name="trim_title">Elegí el tramo</string>
+    <string name="trim_loading">Leyendo el video…</string>
+    <string name="trim_selected_range">%1$s – %2$s (%3$s)</string>
+    <string name="trim_continue_button">Continuar</string>
 </resources>

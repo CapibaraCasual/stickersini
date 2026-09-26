@@ -54,16 +54,20 @@ publicada en Google Play.
   guardar el resultado como sticker de un pack ni entregarlo a WhatsApp —
   eso sigue en "Qué falta".
 - **Fase 3 — en curso: primer recorrido de punta a punta.** Elegir un
-  video o una imagen → conversión con progreso real → vista previa (un
-  solo fotograma, no animada todavía) → guardar. Con recorte automático al
-  centro, sin selector de tramo ni de área propios (RF-06/RF-07 siguen en
-  "Qué falta"). El resultado se guarda siempre en uno de los dos packs
-  semilla (estático o animado según corresponda, ADR-0010) — no hay
-  todavía un pack propio con nombre (RF-15).
+  video o una imagen → **selector de tramo (RF-06) si es video** →
+  conversión con progreso real → vista previa (un solo fotograma, no
+  animada todavía) → guardar. Con recorte de área automático al centro
+  todavía (RF-07 sigue en "Qué falta"). El resultado se guarda siempre en
+  uno de los dos packs semilla (estático o animado según corresponda,
+  ADR-0010) — no hay todavía un pack propio con nombre (RF-15).
   - Navegación entre pasos con Navigation Compose (ADR-0013), reemplazando
     el booleano a mano que conmutaba entre las dos únicas pantallas de
-    antes: necesario en cuanto el flujo de creación empezó a sumar pasos
-    propios.
+    antes: necesario en cuanto el flujo de creación pasó a tener más de un
+    paso propio (elegir archivo → tramo → convertir/guardar).
+  - El selector de tramo (`TrimScreen`) lee la duración real del video con
+    `MediaMetadataRetriever` y deja elegir cualquier ventana de hasta 10 s
+    dentro de ella con un `RangeSlider`, con una miniatura del fotograma de
+    inicio como vista previa.
   - `StickerConversionPipeline` reporta avance real en cada etapa
     (fotogramas decodificados, intento de codificación), no un indicador
     indeterminado.
@@ -87,9 +91,6 @@ publicada en Google Play.
 
 - **Fase 3 — el resto de la interfaz**, sobre el recorrido mínimo que ya
   funciona:
-  - Recorte temporal (RF-06): hoy `VideoFrameDecoder` ya acepta un tramo
-    (`startMs`, `durationMs`), pero nada en la UI todavía elige uno propio —
-    siempre se pide desde el segundo 0.
   - Recorte de área con pellizco de dos dedos (RF-07): hoy `CenterSquareCrop`
     siempre recorta al cuadrado centrado más grande, sin ninguna elección de
     por medio. Cuando exista este recorte, tiene que reemplazar esa regla

@@ -48,16 +48,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Último tramo del flujo de creación: convierte (con recorte automático al
- * centro, sin tramo propio todavía — RF-06/RF-07 pendientes), muestra vista
- * previa (RF-09) y guarda en el pack semilla que corresponda (RF-18, ver
- * [SeedPacks]): no hay todavía una pantalla para elegir o crear un pack
- * propio (RF-15).
+ * Último tramo del flujo de creación: convierte ([startMs]/[durationMs] ya
+ * elegidos por quien llama — RF-06, ver `ui/TrimScreen.kt` — con recorte
+ * automático al centro, RF-07 pendiente), muestra vista previa (RF-09) y
+ * guarda en el pack semilla que corresponda (RF-18, ver [SeedPacks]): no
+ * hay todavía una pantalla para elegir o crear un pack propio (RF-15).
  */
 @Composable
 fun ConvertPreviewSaveScreen(
     uri: Uri,
     isVideo: Boolean,
+    startMs: Long,
+    durationMs: Long,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -70,11 +72,11 @@ fun ConvertPreviewSaveScreen(
     var savedPackName by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(uri) {
+    LaunchedEffect(uri, startMs, durationMs) {
         stage = if (isVideo) ConversionStage.DecodingVideo(0, 1) else ConversionStage.DecodingImage
         withContext(Dispatchers.Default) {
             try {
-                val result = StickerConversionPipeline.convert(context, uri, isVideo) { newStage -> stage = newStage }
+                val result = StickerConversionPipeline.convert(context, uri, isVideo, startMs, durationMs) { newStage -> stage = newStage }
                 previewBitmap = BitmapFactory.decodeByteArray(result.bytes, 0, result.bytes.size)
                 pendingResult = result
             } catch (error: Exception) {

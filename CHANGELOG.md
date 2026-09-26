@@ -7,6 +7,14 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Añadido
+- Selector de tramo de video (RF-06): antes de convertir, el usuario elige
+  con un `RangeSlider` de Material 3 qué ventana de hasta 10 s del video
+  origen se usa, con una miniatura del fotograma de inicio como vista
+  previa (`TrimScreen`, lee la duración real con `MediaMetadataRetriever`).
+  `StickerConversionPipeline.convert` recibe ese tramo (`startMs`,
+  `durationMs`) en vez de asumir siempre el segundo 0.
+
 ### Cambiado
 - Navegación entre pantallas migrada a Navigation Compose (ADR-0013),
   reemplazando el booleano a mano que conmutaba entre pantallas: prepara
