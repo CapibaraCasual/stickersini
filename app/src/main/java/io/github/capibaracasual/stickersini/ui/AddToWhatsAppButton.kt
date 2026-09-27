@@ -20,6 +20,7 @@ import androidx.compose.ui.res.stringResource
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.provider.WhatsAppStickerIntent
 import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
+import io.github.capibaracasual.stickersini.stickers.domain.WhatsAppStatus
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
 
 /**
@@ -31,15 +32,27 @@ import io.github.capibaracasual.stickersini.ui.theme.Spacing
  * cantidad de stickers de ese momento (único lugar donde se llama
  * [StickerPackRepository.markAddedToWhatsApp]) para que la gestión de packs
  * pueda mostrar si un pack está al día o cambió después.
+ *
+ * El texto del botón depende de [status] y usa las mismas tres cadenas que
+ * la insignia de `PackListScreen`: si dijeran cosas distintas, la app se
+ * contradiría (la insignia lleva hasta acá, el botón es la acción de
+ * verdad).
  */
 @Composable
-fun AddToWhatsAppButton(identifier: String, packName: String) {
+fun AddToWhatsAppButton(identifier: String, packName: String, status: WhatsAppStatus) {
     val context = LocalContext.current
     val repository = remember { StickerPackRepository(context.applicationContext) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
     val noActivityMessage = stringResource(R.string.result_no_activity)
     val whatsAppNotInstalledMessage = stringResource(R.string.result_whatsapp_not_installed)
     val successMessage = stringResource(R.string.result_success)
+    val buttonText = stringResource(
+        when (status) {
+            WhatsAppStatus.NeverConfirmed -> R.string.packs_whatsapp_add_badge
+            WhatsAppStatus.OutOfDate -> R.string.packs_whatsapp_update_badge
+            WhatsAppStatus.UpToDate -> R.string.packs_whatsapp_up_to_date_badge
+        },
+    )
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -54,7 +67,7 @@ fun AddToWhatsAppButton(identifier: String, packName: String) {
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
         StickerPrimaryButton(
-            text = stringResource(R.string.add_pack_button),
+            text = buttonText,
             onClick = {
                 if (!WhatsAppStickerIntent.isWhatsAppInstalled(context)) {
                     resultMessage = whatsAppNotInstalledMessage

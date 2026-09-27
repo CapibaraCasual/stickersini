@@ -20,7 +20,11 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   sólido) — este último cierra un agujero que existía antes: agregar un
   sticker a un pack que ya estaba en WhatsApp no avisaba que había que
   volver a notificarlo. La insignia es un indicador, no un botón: la
-  acción sigue viviendo solo en `PackDetailScreen`.
+  acción sigue viviendo solo en `PackDetailScreen`, cuyo botón ahora usa
+  el mismo texto según el mismo estado — antes decía siempre "Añadir
+  pack a WhatsApp", así que un pack desactualizado podía mostrar la
+  insignia "Actualizar en WhatsApp" en la lista y, un toque después, un
+  botón que decía otra cosa.
 
 ### Cambiado
 - Paleta, tipografía y radios de esquina de "Plancha de stickers" —

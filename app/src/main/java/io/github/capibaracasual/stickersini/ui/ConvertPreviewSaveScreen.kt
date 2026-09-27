@@ -308,7 +308,7 @@ private fun SavedPackCard(pack: ManagedStickerPack) {
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             } else {
-                AddToWhatsAppButton(identifier = pack.identifier, packName = pack.name)
+                AddToWhatsAppButton(identifier = pack.identifier, packName = pack.name, status = pack.whatsAppStatus)
             }
         }
     }

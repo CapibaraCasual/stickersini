@@ -118,7 +118,7 @@ fun PackDetailScreen(identifier: String, onBack: () -> Unit, onPackDeleted: () -
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    AddToWhatsAppButton(identifier = currentPack.identifier, packName = currentPack.name)
+                    AddToWhatsAppButton(identifier = currentPack.identifier, packName = currentPack.name, status = currentPack.whatsAppStatus)
                 }
 
                 if (!currentPack.isSeedPack) {
