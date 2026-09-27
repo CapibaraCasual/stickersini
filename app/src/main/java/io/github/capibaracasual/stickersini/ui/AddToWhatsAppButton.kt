@@ -7,7 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -43,11 +43,12 @@ fun AddToWhatsAppButton(identifier: String, packName: String) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
-        Button(
+        StickerPrimaryButton(
+            text = stringResource(R.string.add_pack_button),
             onClick = {
                 if (!WhatsAppStickerIntent.isWhatsAppInstalled(context)) {
                     resultMessage = whatsAppNotInstalledMessage
-                    return@Button
+                    return@StickerPrimaryButton
                 }
                 val intent = WhatsAppStickerIntent.buildAddPackIntent(context, identifier, packName)
                 try {
@@ -57,9 +58,7 @@ fun AddToWhatsAppButton(identifier: String, packName: String) {
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(text = stringResource(R.string.add_pack_button))
-        }
-        resultMessage?.let { message -> Text(text = message) }
+        )
+        resultMessage?.let { message -> Text(text = message, style = MaterialTheme.typography.bodyMedium) }
     }
 }

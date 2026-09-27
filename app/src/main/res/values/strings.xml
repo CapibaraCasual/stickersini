@@ -13,7 +13,7 @@
     <string name="result_no_activity">WhatsApp no pudo abrir el diálogo de confirmación de stickers.</string>
 
     <string name="create_sticker_button">Crear sticker</string>
-    <string name="create_sticker_back">← Volver</string>
+    <string name="create_sticker_back">Volver</string>
     <string name="create_sticker_title">Elegí un video o una imagen</string>
     <string name="create_sticker_pick_button">Elegir archivo</string>
     <string name="create_sticker_error">No se pudo convertir: %1$s</string>

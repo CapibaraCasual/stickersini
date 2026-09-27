@@ -14,6 +14,11 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   en `res/font` porque la app no tiene permiso de red) reemplazando la
   tipografía por defecto de Material 3, y una escala de radios separada de
   la de espaciado.
+- Componentes de pantalla compartidos (`ui/StickerScreenChrome.kt`):
+  cabecera con chevron de volver dibujado a mano, botón principal con el
+  relieve de sombra sólida ("sticker apretable"), marco "recortado" para
+  vistas previas, insignia y avatar de pack por inicial —
+  `AddToWhatsAppButton` pasa a usar el mismo botón principal.
 
 ## [0.7.0-alpha] - 2026-09-26
 
