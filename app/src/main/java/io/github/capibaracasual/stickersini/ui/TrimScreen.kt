@@ -7,18 +7,16 @@ import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,12 +25,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.media.MAX_CLIP_DURATION_MS
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
@@ -49,6 +46,10 @@ import java.util.Locale
  * nunca lo deja crecer más allá ([clampWindow]). Sin recorte de área propio
  * todavía (RF-07 queda pendiente): el resultado sigue recortando al
  * cuadrado central.
+ *
+ * Reproducir el video mientras se elige el tramo (en vez de solo la
+ * miniatura del fotograma de inicio) queda en el backlog de interfaz, ver
+ * README "Qué falta" — este pase es solo visual.
  */
 @Composable
 fun TrimScreen(
@@ -73,29 +74,46 @@ fun TrimScreen(
         thumbnail = withContext(Dispatchers.Default) { frameAt(context, uri, initialStartMs) }
     }
 
-    Scaffold { padding ->
+    Scaffold(
+        bottomBar = {
+            Column(modifier = Modifier.fillMaxWidth().padding(Spacing.large)) {
+                StickerPrimaryButton(
+                    text = stringResource(R.string.trim_continue_button),
+                    enabled = videoDurationMs != null,
+                    onClick = {
+                        val startMs = range.start.toLong()
+                        val durationMs = (range.endInclusive - range.start).toLong().coerceAtLeast(1L)
+                        onContinue(startMs, durationMs)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+    ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = Spacing.large),
             verticalArrangement = Arrangement.spacedBy(Spacing.medium),
         ) {
-            TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
-            Text(text = stringResource(R.string.trim_title), style = MaterialTheme.typography.titleLarge)
+            StickerScreenHeader(
+                title = stringResource(R.string.trim_title),
+                backLabel = stringResource(R.string.create_sticker_back),
+                onBack = onBack,
+            )
 
             val duration = videoDurationMs
             if (duration == null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Text(text = stringResource(R.string.trim_loading), style = MaterialTheme.typography.bodyMedium)
             } else {
-                thumbnail?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(Spacing.small)),
-                    )
+                StickerDieCutFrame(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 10f)) {
+                    thumbnail?.let { bitmap ->
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
 
                 val maxWidthMs = MAX_CLIP_DURATION_MS.coerceAtMost(duration)
@@ -107,6 +125,9 @@ fun TrimScreen(
                         formatMs((range.endInclusive - range.start).toLong()),
                     ),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 RangeSlider(
                     value = range,
@@ -116,18 +137,12 @@ fun TrimScreen(
                         scope.launch { thumbnail = withContext(Dispatchers.Default) { frameAt(context, uri, startMs) } }
                     },
                     valueRange = 0f..duration.toFloat(),
+                    colors = SliderDefaults.colors(
+                        thumbColor = MaterialTheme.colorScheme.primary,
+                        activeTrackColor = MaterialTheme.colorScheme.primary,
+                        inactiveTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                    ),
                 )
-
-                Button(
-                    onClick = {
-                        val startMs = range.start.toLong()
-                        val durationMs = (range.endInclusive - range.start).toLong().coerceAtLeast(1L)
-                        onContinue(startMs, durationMs)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(text = stringResource(R.string.trim_continue_button))
-                }
             }
         }
     }

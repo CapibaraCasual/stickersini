@@ -24,6 +24,11 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   de dos stickers superpuestos como guiño a la lámina (sin ícono propio
   todavía — los seis stickers semilla definitivos siguen en el backlog) y
   micro-copy de refuerzo ("Nada se sube a ningún lado: elegí y listo.").
+- `TrimScreen` (selector de tramo, RF-06) con la dirección visual: la
+  miniatura del fotograma de inicio pasa al marco "recortado" compartido
+  y el `RangeSlider` usa los colores coral/tinte en vez de la paleta de
+  Material 3 por defecto. Reproducir el video mientras se elige el tramo
+  sigue pendiente (README "Qué falta") — este pase es solo visual.
 
 ## [0.7.0-alpha] - 2026-09-26
 
