@@ -18,8 +18,19 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.6.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.7.0-alpha`. Todavía no hay versión
 publicada en Google Play.
+
+**Rendimiento queda cerrado con esta versión.** Las Fases 0-2 (WhatsApp,
+codificador, importación de video/imagen) están validadas en dispositivo
+real; el fps de prefiltro de video (8, ADR-0012) es el techo real de este
+pipeline, no una elección conservadora, y el decode ya corre en paralelo
+con la conversión (ADR-0015). No hay ningún número de rendimiento
+pendiente de decidir — lo que sigue es medir en más hardware, no cambiar
+valores en el único dispositivo probado hasta ahora (ver "Qué falta").
+**El siguiente foco es la interfaz**: las cuatro pantallas del recorrido
+de Fase 3 funcionan pero son toscas, y falta trabajo de diseño visual, no
+de funciones nuevas.
 
 ### Qué funciona ya
 
@@ -115,48 +126,119 @@ publicada en Google Play.
     más fotogramas, no el tamaño del archivo final, así que bajar
     resolución ataca el cuello de botella equivocado. Detalle completo del
     barrido (36 combinaciones, 180 corridas) en `docs/desarrollo/pruebas.md`.
+  - **8 fps es el techo de este pipeline, no una elección conservadora
+    (ADR-0015, cierra el tema).** Investigadas las dos vías que quedaban:
+    decodificar a menor resolución (el dispositivo medido ignora un
+    `ImageReader` más chico que el nativo, no hay ganancia posible ahí) y
+    paralelizar la codificación de fotogramas (`WebPAnimEncoderAdd` es
+    secuencial por diseño —cada fotograma necesita el anterior para decidir
+    si sale como diferencia o como cuadro clave—, y el único parámetro de
+    hilos de `libwebp` que aplica a la configuración de producción
+    (`thread_level`) midió 1-13% *más lento*, nunca más rápido). Subir fps
+    de verdad exigiría dejar de usar `WebPAnimEncoderAdd` y reimplementar a
+    mano, con la API de más bajo nivel de `libwebpmux`, la decisión de
+    cuadro-clave-vs-diferencia que hoy da gratis — con riesgo real de
+    superar el límite de 500 KB de RF-10 si esa reimplementación comprime
+    peor. **Descartado por ahora**, no medido: ver "Qué falta" para qué
+    haría falta medir antes de intentarlo.
+  - **El decode se paraleliza con la conversión del fotograma siguiente
+    (ADR-0015, implementado en producción).** No sube el fps (el cuello de
+    botella es el codificador, no el decode, ver arriba), pero recupera
+    margen real en los tres tramos de RNF-08, sobre todo el más ajustado
+    (el clip de 10 s, máximo de RF-06): el peor caso de 5 corridas pasa de
+    17 589 ms (12.1% de margen, ADR-0012) a **15 319 ms (23.4% de
+    margen)**; el clip de 5 s pasa de 12.0% a **30.6%**, y el de 3 s de
+    41.1% a **52.9%**. Validado con el mismo método de 5 corridas de
+    ADR-0012, invocaciones separadas de `am instrument` (importa: ver la
+    corrección de método más abajo). Detalle completo,
+    incluida una corrección de método importante (un primer intento de
+    remedición dio un falso positivo de incumplimiento de RNF-08 por medir
+    mal, corriendo 135 conversiones seguidas en un solo proceso, no por un
+    error de la app) en `docs/desarrollo/pruebas.md` y ADR-0015.
 
 ### Qué falta
 
-- **Fase 3 — lo que queda de la interfaz**, sobre el recorrido que ya
-  funciona:
-  - **Trabajo de diseño de la interfaz, no solo de funciones.** Lo que hay
-    hoy es funcional pero tosco. El criterio para el guardado: que nunca se
-    sienta como un trámite administrativo (el mecanismo de packs semilla ya
-    lo permite —guardar es instantáneo—, falta que la pantalla lo transmita).
-- **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
-  las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
-  Note 14; el margen que deja 8 fps de prefiltro (ADR-0012) es ajustado
-  (12%) en dos de los tres casos medidos, y podría no sostenerse en un
-  dispositivo más lento.
-- **Tema abierto, pendiente de mirar, no de medir:** el barrido del
-  2026-09-26 (mismo punto anterior) mostró que, a los mismos 8 fps, bajar
-  la resolución de codificación de 512 a 384 evita un segundo intento de
-  bisección del codificador en el clip de 10 s y casi duplica su margen
-  (12.6% → 55.9%) — a costa de nitidez, porque el resultado final sale de
-  escalar una imagen más chica a 512×512, no de codificar 512 nativo. Se
-  generaron tres stickers de la misma escena (actual 512@8fps, candidatas
-  384@8fps y 320@8fps) con `ComparisonStickerGeneratorTest`, dejados en el
-  teléfono (`/sdcard/Download/stickersini_comparacion/`). Decisión pendiente
-  de mirarlos: si la pérdida de nitidez es aceptable, va en un ADR nuevo que
-  ajuste la resolución de codificación (no el fps, que ADR-0012 ya cerró).
-- **Backlog de interfaz, sin fecha:**
-  - Reproducir el video en la pantalla de tramo (`TrimScreen`), para elegir
-    el fragmento viéndolo en vez de solo por segundos.
-  - Poder rotar el contenido durante el encuadre (`CropScreen`), además de
-    moverlo y ampliarlo.
-  - Seleccionar varios archivos y editarlos uno tras otro en cola (RF-25,
-    agregado a `docs/desarrollo/requisitos.md` en esta misma tanda).
+Rendimiento cerrado (ver "Estado" arriba). **Siguiente foco: interfaz.**
+Pendientes, en el orden en que probablemente importen:
+
+1. **Trabajo de diseño visual de las cuatro pantallas** del recorrido de
+   Fase 3 (`TrimScreen`, `CropScreen`, la de conversión/guardado, la de
+   gestión de packs): funcionan, pero son toscas. El criterio para el
+   guardado: que nunca se sienta como un trámite administrativo (el
+   mecanismo de packs semilla ya lo permite —guardar es instantáneo—,
+   falta que la pantalla lo transmita).
+2. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
+   viéndolo en vez de solo por segundos.
+3. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
+   moverlo y ampliarlo.
+4. **Cola de varios archivos** (RF-25, agregado a
+   `docs/desarrollo/requisitos.md`): seleccionar varios y editarlos uno
+   tras otro.
+5. **Los seis stickers semilla definitivos y los avisos de licencia
+   (RNF-11).** Los placeholders actuales (3 estáticos, 3 animados) son
+   cuadrados de color plano de prueba, no material de marca — ADR-0004 los
+   hace permanentes, así que hay que reemplazarlos antes de publicar. El
+   código de libwebp viaja vendorizado (ADR-0005), sin que ninguna
+   herramienta automática de licencias lo detecte: hay que añadir su
+   `COPYING` a la pantalla de licencias a mano.
+6. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
+   las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
+   Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
+   prefiltro en los tres tramos (12.1%→23.4% en el más ajustado, el clip
+   de 10 s), pero sigue siendo el único hardware medido — un dispositivo
+   bastante más lento podría no sostenerlo.
+
+**Herramientas de medición conservadas para retomar el tema del
+codificador** (no producción, no se ejecutan solas): la investigación de
+si `WebPAnimEncoder` podía paralelizar fotogramas midió que no, con las
+herramientas que quedaron en el repo listas para retomarlo si alguna vez
+hace falta.
+- `webp/src/androidTest/.../webp/WebpThreadLevelBenchmarkTest.kt`: mide
+  `thread_level` de libwebp (descartado, 1-13% más lento) — punto de
+  partida si se prueba otro `method` o tamaño de imagen.
+- `app/src/androidTest/.../media/ReducedResolutionDecodeFeasibilityTest.kt`:
+  si un `ImageReader` más chico que el nativo baja el costo de decode
+  (este dispositivo lo ignora; otro podría no hacerlo).
+- `app/src/androidTest/.../media/ParallelDecodeConversionProbeTest.kt` y
+  `ParallelVideoFrameDecoder.kt`: comparan configuraciones de
+  hilos/capacidad del decode paralelo contra las fijas de producción
+  (ADR-0015) — el punto de partida si se cambia de dispositivo o si el
+  decode vuelve a importar tras optimizar el encoder.
+- `app/src/androidTest/.../media/ParallelDecoderIsolationTest.kt`: el
+  patrón correcto (una corrida por invocación de `am instrument`) para
+  medir un número absoluto contra un presupuesto de RNF-08, después de que
+  la variante anterior de este archivo (barrer muchas celdas en un solo
+  proceso) diera un falso positivo — ver `docs/desarrollo/pruebas.md` y
+  ADR-0015.
+- **Si se quiere perseguir más fps de todos modos (descartado por ahora,
+  ADR-0015):** la única vía que queda es dejar de usar
+  `WebPAnimEncoderAdd`, codificar cada fotograma por separado con
+  `WebPEncode` (en paralelo de verdad, sin la limitación de que cada
+  llamada necesite la anterior) y rearmar el WebP animado a mano con
+  `WebPMuxPushFrame`. Antes de tocar código de producción hace falta medir
+  dos cosas que hoy no se sabe: cuánto tamaño gana hoy el diffing
+  automático de `WebPAnimEncoderAdd` frente a codificar cada fotograma como
+  cuadro clave independiente (el peor caso si no se reimplementa esa
+  lógica), y si migrar a la API de más bajo nivel de `libwebpmux` compila y
+  funciona de verdad en el `:webp` vendorizado de este proyecto.
+
+**Tema abierto, pendiente de mirar, no de medir:** el barrido del
+2026-09-26 mostró que, a los mismos 8 fps, bajar la resolución de
+codificación de 512 a 384 evita un segundo intento de bisección del
+codificador en el clip de 10 s y casi duplica su margen (12.6% → 55.9%) —
+a costa de nitidez, porque el resultado final sale de escalar una imagen
+más chica a 512×512, no de codificar 512 nativo. Se generaron tres
+stickers de la misma escena (actual 512@8fps, candidatas 384@8fps y
+320@8fps) con `ComparisonStickerGeneratorTest`, dejados en el teléfono
+(`/sdcard/Download/stickersini_comparacion/`). Decisión pendiente de
+mirarlos: si la pérdida de nitidez es aceptable, va en un ADR nuevo que
+ajuste la resolución de codificación (no el fps, que ADR-0012 ya cerró).
+
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
-  - Issue de los stickers semilla: los placeholders actuales (3 estáticos,
-    3 animados) son cuadrados de color plano de prueba, no material de
-    marca; según ADR-0004 los packs semilla son permanentes y viajan con
-    la app, así que hay que reemplazarlos antes de publicar.
-  - Issue de los avisos de licencia (RNF-11): el código de libwebp viaja
-    vendorizado (ADR-0005), así que ninguna herramienta automática de
-    generación de licencias lo detecta; hay que añadir el `COPYING` de
-    libwebp a la pantalla de licencias a mano.
+  - Issues de los puntos 5 y 6 de arriba (stickers semilla, licencias) y de
+    los temas de rendimiento sin cerrar (WebPMux, resolución de
+    codificación).
   - Historias de usuario del trabajo pendiente (Fase 3 en adelante), para
     rastrearlo fuera de este README.
 

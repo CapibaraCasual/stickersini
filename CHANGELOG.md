@@ -7,6 +7,40 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.7.0-alpha] - 2026-09-26
+
+Cierra el tema de rendimiento abierto por ADR-0012: investigadas las dos
+vías que quedaban para el decode de video (reducir la resolución de
+`ImageReader`, paralelizar decode y conversión) y si `WebPAnimEncoder`
+podía paralelizar la codificación de fotogramas. Una vía sirvió y se
+adoptó (ADR-0015); las otras dos se descartaron, medidas y documentadas
+para no repetir la pregunta sin una razón nueva. En el camino se encontró
+y corrigió un falso positivo de método (una remedición mal hecha sugería
+que RNF-08 estaba roto en producción; no lo estaba).
+
+### Cambiado
+- El decode de video pasa a convertir cada fotograma en paralelo al decode
+  del siguiente, en vez de esperar la conversión antes de seguir
+  decodificando (ADR-0015): medido 1.75×-2.75× más rápido en decode+
+  conversión. El fps de prefiltro sigue en 8 (ADR-0012, sin cambios: el
+  cuello de botella para subirlo es `WebpAnimEncoder`, no el decode —
+  investigado y descartado, `WebPAnimEncoderAdd` es secuencial por diseño
+  y el único parámetro de hilos de libwebp que aplica midió más lento, no
+  más rápido). Margen medido contra RNF-08 mejora en los tres tramos: el
+  más ajustado (clip de 10 s, máximo de RF-06) pasa de 12.1% a 23.4% de
+  margen en el peor caso de 5 corridas.
+
+### Investigado, no adoptado
+- Decodificar a una resolución menor que la nativa del video, pidiéndole a
+  `ImageReader` un tamaño más chico: descartado, el dispositivo medido
+  ignora el tamaño pedido y siempre entrega el nativo, sin ninguna
+  ganancia de tiempo.
+- Paralelizar la codificación de fotogramas en `WebPAnimEncoder`:
+  descartado. La API pública es secuencial por diseño (cada fotograma
+  necesita el anterior); el único parámetro de hilos de libwebp que aplica
+  a la configuración de producción (`thread_level`) midió 1-13% más lento,
+  nunca más rápido, con el mismo tamaño de salida.
+
 ## [0.6.0-alpha] - 2026-09-26
 
 Cierra el resto de la interfaz de Fase 3 que quedaba pendiente desde la
