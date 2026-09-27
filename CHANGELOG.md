@@ -7,6 +7,14 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Cambiado
+- Paleta, tipografía y radios de esquina de "Plancha de stickers" —
+  dirección visual elegida entre tres propuestas el 2026-09-27: cálida
+  (papel, tinta, coral, menta), con Fredoka + Karla (OFL-1.1, vendorizadas
+  en `res/font` porque la app no tiene permiso de red) reemplazando la
+  tipografía por defecto de Material 3, y una escala de radios separada de
+  la de espaciado.
+
 ## [0.7.0-alpha] - 2026-09-26
 
 Cierra el tema de rendimiento abierto por ADR-0012: investigadas las dos
