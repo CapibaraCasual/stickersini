@@ -16,12 +16,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -50,6 +50,7 @@ import io.github.capibaracasual.stickersini.media.calculateInSampleSize
 import io.github.capibaracasual.stickersini.media.displayedCropToNormalized
 import io.github.capibaracasual.stickersini.media.readImageOrientationDegrees
 import io.github.capibaracasual.stickersini.media.rotateSquareBitmap
+import io.github.capibaracasual.stickersini.ui.theme.Radius
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -128,7 +129,8 @@ fun CropScreen(
     Scaffold(
         bottomBar = {
             if (currentSource != null) {
-                Button(
+                StickerPrimaryButton(
+                    text = stringResource(R.string.crop_continue_button),
                     onClick = {
                         val normalized = displayedCropToNormalized(
                             displayedX = cropOffsetX,
@@ -141,18 +143,19 @@ fun CropScreen(
                         onContinue(normalized)
                     },
                     modifier = Modifier.fillMaxWidth().padding(Spacing.large),
-                ) {
-                    Text(text = stringResource(R.string.crop_continue_button))
-                }
+                )
             }
         },
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = Spacing.large),
             verticalArrangement = Arrangement.spacedBy(Spacing.medium),
         ) {
-            TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
-            Text(text = stringResource(R.string.crop_title), style = MaterialTheme.typography.titleLarge)
+            StickerScreenHeader(
+                title = stringResource(R.string.crop_title),
+                backLabel = stringResource(R.string.create_sticker_back),
+                onBack = onBack,
+            )
 
             errorMessage?.let { message ->
                 Text(text = stringResource(R.string.create_sticker_error, message), style = MaterialTheme.typography.bodyMedium)
@@ -191,6 +194,7 @@ fun CropScreen(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .size(boxWidthDp, boxHeightDp)
+                            .clip(RoundedCornerShape(Radius.card))
                             .onSizeChanged { containerSizePx = it }
                             .pointerInput(currentSource) {
                                 detectTransformGestures { centroid, pan, zoom, _ ->

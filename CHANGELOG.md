@@ -29,6 +29,12 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   y el `RangeSlider` usa los colores coral/tinte en vez de la paleta de
   Material 3 por defecto. Reproducir el video mientras se elige el tramo
   sigue pendiente (README "Qué falta") — este pase es solo visual.
+- `CropScreen` (encuadre con pellizco, RF-07) con la dirección visual:
+  cabecera y botón principal compartidos, esquinas redondeadas en el
+  cuadro de recorte. El trazo del rectángulo de selección ya tomaba el
+  color primario de Material 3, así que pasa a coral sin tocar la lógica
+  de gestos. Rotar el contenido durante el encuadre sigue pendiente
+  (README "Qué falta").
 
 ## [0.7.0-alpha] - 2026-09-26
 
