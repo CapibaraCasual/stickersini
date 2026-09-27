@@ -19,7 +19,11 @@
     <string name="create_sticker_pick_reassurance">Nada se sube a ningún lado: elegí y listo.</string>
     <string name="create_sticker_error">No se pudo convertir: %1$s</string>
     <string name="create_sticker_save_button">Guardar como sticker</string>
+    <string name="create_sticker_save_reassurance">Se guarda al instante — nada sale de tu teléfono.</string>
     <string name="create_sticker_saved">Guardado en el pack \"%1$s\".</string>
+    <string name="convert_title">Guardar sticker</string>
+    <string name="convert_animated_badge">Animado</string>
+    <string name="convert_meta">%1$s · %2$d KB · 512×512</string>
     <string name="create_sticker_stage_decoding_video">Decodificando video: %1$d/%2$d fotogramas</string>
     <string name="create_sticker_stage_decoding_image">Decodificando imagen…</string>
     <string name="create_sticker_stage_encoding">Codificando WebP (intento %1$d)…</string>

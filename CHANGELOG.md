@@ -35,6 +35,14 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   color primario de Material 3, así que pasa a coral sin tocar la lógica
   de gestos. Rotar el contenido durante el encuadre sigue pendiente
   (README "Qué falta").
+- `ConvertPreviewSaveScreen` (conversión/guardado) con la dirección
+  visual — la pantalla con el criterio más explícito del pase (README
+  "Qué falta": que guardar no se sienta como un trámite administrativo):
+  vista previa en el marco recortado con insignia "Animado", meta línea
+  (duración · KB · 512×512), selector de pack como fila de avatares con
+  la inicial del nombre (anillo coral cuando está seleccionado, en vez
+  de la lista de `RadioButton` anterior), botón principal + micro-copy
+  de refuerzo, y tarjeta de éxito en tono menta.
 
 ## [0.7.0-alpha] - 2026-09-26
 
