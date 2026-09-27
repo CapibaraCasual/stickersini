@@ -18,19 +18,36 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.7.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.8.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
-**Rendimiento queda cerrado con esta versión.** Las Fases 0-2 (WhatsApp,
-codificador, importación de video/imagen) están validadas en dispositivo
-real; el fps de prefiltro de video (8, ADR-0012) es el techo real de este
-pipeline, no una elección conservadora, y el decode ya corre en paralelo
-con la conversión (ADR-0015). No hay ningún número de rendimiento
-pendiente de decidir — lo que sigue es medir en más hardware, no cambiar
-valores en el único dispositivo probado hasta ahora (ver "Qué falta").
-**El siguiente foco es la interfaz**: las cuatro pantallas del recorrido
-de Fase 3 funcionan pero son toscas, y falta trabajo de diseño visual, no
-de funciones nuevas.
+**Rendimiento sigue cerrado** (fps de prefiltro en 8, techo real medido —
+ADR-0012/ADR-0015): esta versión no reabre ese tema. Sí encontró y cerró
+un bug de corrección distinto, en uso real: RF-12 fallaba de forma
+**garantizada** (no como caso límite raro) al convertir contenido adverso
+en el tramo máximo de RF-06 (10 s) — el piso de fotogramas de ADR-0007
+escalaba con la duración del clip y nunca se había validado más allá de
+3 s; para 10 s no existía ninguna combinación de calidad que hiciera
+caber el resultado. ADR-0016 rediseña la escalera de degradación (piso
+fijo de fotogramas, resolución de codificación y acortar duración como
+escalones nuevos, estimar antes de gastar una codificación completa) y
+lo confirma en dispositivo real: el caso que fallaba ya no falla, y el
+caso de referencia de ADR-0007 da el mismo resultado de siempre, más
+rápido.
+
+**La dirección visual ("Plancha de stickers", elegida entre tres
+propuestas) ya está aplicada a las seis pantallas del recorrido
+completo**, portada incluida: elegir archivo, tramo, recorte,
+conversión/guardado, gestión de packs y la pantalla de inicio. La
+gestión de packs además distingue ahora si cada pack ya se agregó a
+WhatsApp, sigue al día, o quedó desactualizado tras agregarle un sticker
+nuevo (RF-20).
+
+**Lo que sigue, para retomar mañana** (detalle completo en "Qué falta"):
+los seis stickers semilla definitivos, avisos de licencia (RNF-11 —
+libwebp y ahora también las fuentes Fredoka/Karla), reproducir el video
+en el selector de tramo, rotar en el encuadre, cola de varios archivos
+(RF-25), y la segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
 
 ### Qué funciona ya
 
@@ -155,32 +172,56 @@ de funciones nuevas.
     remedición dio un falso positivo de incumplimiento de RNF-08 por medir
     mal, corriendo 135 conversiones seguidas en un solo proceso, no por un
     error de la app) en `docs/desarrollo/pruebas.md` y ADR-0015.
+  - **Diseño visual de las seis pantallas del recorrido, cerrado** —
+    dirección "Plancha de stickers" (paleta cálida, tipografía Fredoka +
+    Karla, componentes compartidos como el marco "recortado" y el botón
+    con relieve), elegida entre tres propuestas y aplicada de punta a
+    punta: elegir archivo, tramo, recorte, conversión/guardado, gestión
+    de packs y la pantalla de inicio. La gestión de packs distingue
+    además si cada pack ya se agregó a WhatsApp, sigue al día o quedó
+    desactualizado (RF-20).
+  - **RF-12 fallaba de forma garantizada, no como caso límite, al
+    convertir contenido adverso en el tramo máximo de RF-06 (10 s)** — el
+    piso de fotogramas de ADR-0007 escalaba con la duración del clip y
+    nunca se había validado más allá de 3 s; para 10 s no había ninguna
+    combinación de calidad que hiciera caber el resultado. **ADR-0016**
+    rediseña la escalera de degradación (piso fijo de fotogramas,
+    resolución de codificación y acortar duración como escalones nuevos
+    antes de sacrificar fluidez, más estimar por proporción antes de
+    gastar una codificación completa) y lo confirma en dispositivo real:
+    el caso que fallaba ya no falla y queda acortado a 3 s en vez de
+    estirado en los 10 s; el caso de referencia de ADR-0007 da el mismo
+    resultado de siempre, ahora en menos codificaciones. Detalle completo
+    (barrido de 48 combinaciones, las dos corridas de confirmación) en
+    `docs/desarrollo/pruebas.md`.
 
 ### Qué falta
 
-Rendimiento cerrado (ver "Estado" arriba). **Siguiente foco: interfaz.**
-Pendientes, en el orden en que probablemente importen:
+Rendimiento cerrado, diseño visual del recorrido completo cerrado, y el
+bug de RF-12 cerrado con ADR-0016 (ver "Estado" arriba). Pendientes,
+para retomar mañana:
 
-1. **Trabajo de diseño visual de las cuatro pantallas** del recorrido de
-   Fase 3 (`TrimScreen`, `CropScreen`, la de conversión/guardado, la de
-   gestión de packs): funcionan, pero son toscas. El criterio para el
-   guardado: que nunca se sienta como un trámite administrativo (el
-   mecanismo de packs semilla ya lo permite —guardar es instantáneo—,
-   falta que la pantalla lo transmita).
-2. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
+1. **Los seis stickers semilla definitivos.** Los placeholders actuales
+   (3 estáticos, 3 animados) son cuadrados de color plano de prueba, no
+   material de marca — ADR-0004 los hace permanentes, así que hay que
+   reemplazarlos antes de publicar. La dirección visual ya elegida
+   ("Plancha de stickers") tiene que admitirlos: ver la propuesta de
+   ilustración de tres stickers en abanico de `AddSeedPackScreen` como
+   punto de partida de estilo.
+2. **Avisos de licencia (RNF-11).** El código de libwebp viaja
+   vendorizado (ADR-0005), sin que ninguna herramienta automática de
+   licencias lo detecte: hay que añadir su `COPYING` a la pantalla de
+   licencias a mano. Se suma esta tanda: **Fredoka y Karla** (OFL-1.1),
+   vendorizadas en `res/font` por la dirección visual — sus licencias ya
+   están en `app/src/main/assets/licenses/`, falta la pantalla que las
+   muestre (no existe todavía ninguna pantalla de licencias en la app).
+3. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
    viéndolo en vez de solo por segundos.
-3. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
+4. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
    moverlo y ampliarlo.
-4. **Cola de varios archivos** (RF-25, agregado a
+5. **Cola de varios archivos** (RF-25, agregado a
    `docs/desarrollo/requisitos.md`): seleccionar varios y editarlos uno
    tras otro.
-5. **Los seis stickers semilla definitivos y los avisos de licencia
-   (RNF-11).** Los placeholders actuales (3 estáticos, 3 animados) son
-   cuadrados de color plano de prueba, no material de marca — ADR-0004 los
-   hace permanentes, así que hay que reemplazarlos antes de publicar. El
-   código de libwebp viaja vendorizado (ADR-0005), sin que ninguna
-   herramienta automática de licencias lo detecte: hay que añadir su
-   `COPYING` a la pantalla de licencias a mano.
 6. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
    las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
    Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
@@ -222,25 +263,28 @@ hace falta.
   lógica), y si migrar a la API de más bajo nivel de `libwebpmux` compila y
   funciona de verdad en el `:webp` vendorizado de este proyecto.
 
-**Tema abierto, pendiente de mirar, no de medir:** el barrido del
-2026-09-26 mostró que, a los mismos 8 fps, bajar la resolución de
+**Tema abierto, acotado por ADR-0016, no cerrado del todo:** el barrido
+del 2026-09-26 mostró que, a los mismos 8 fps, bajar la resolución de
 codificación de 512 a 384 evita un segundo intento de bisección del
 codificador en el clip de 10 s y casi duplica su margen (12.6% → 55.9%) —
 a costa de nitidez, porque el resultado final sale de escalar una imagen
-más chica a 512×512, no de codificar 512 nativo. Se generaron tres
-stickers de la misma escena (actual 512@8fps, candidatas 384@8fps y
-320@8fps) con `ComparisonStickerGeneratorTest`, dejados en el teléfono
-(`/sdcard/Download/stickersini_comparacion/`). Decisión pendiente de
-mirarlos: si la pérdida de nitidez es aceptable, va en un ADR nuevo que
-ajuste la resolución de codificación (no el fps, que ADR-0012 ya cerró).
+más chica a 512×512, no de codificar 512 nativo. ADR-0016 ya usa 384
+como escalón de la escalera de degradación (solo para el contenido que
+no cabe a 512, no para todos), así que la pregunta que queda abierta es
+más chica: si vale la pena bajar la resolución *por defecto* para todo
+el mundo a cambio de más margen, no solo como salvavidas del caso
+adverso. Se generaron tres stickers de la misma escena (actual 512@8fps,
+candidatas 384@8fps y 320@8fps) con `ComparisonStickerGeneratorTest`,
+dejados en el teléfono (`/sdcard/Download/stickersini_comparacion/`).
+Decisión pendiente de mirarlos.
 
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
-  - Issues de los puntos 5 y 6 de arriba (stickers semilla, licencias) y de
+  - Issues de los puntos 1 y 2 de arriba (stickers semilla, licencias) y de
     los temas de rendimiento sin cerrar (WebPMux, resolución de
-    codificación).
-  - Historias de usuario del trabajo pendiente (Fase 3 en adelante), para
-    rastrearlo fuera de este README.
+    codificación por defecto).
+  - Historias de usuario del trabajo pendiente (puntos 3-5 de arriba),
+    para rastrearlo fuera de este README.
 
 ## Instalación
 

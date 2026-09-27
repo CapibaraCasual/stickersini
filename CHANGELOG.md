@@ -7,6 +7,15 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.8.0-alpha] - 2026-09-27
+
+Dirección visual propia ("Plancha de stickers", elegida entre tres
+propuestas) aplicada a las seis pantallas del recorrido completo,
+gestión de packs que distingue si ya se agregaron a WhatsApp, y un bug
+real de RF-12 encontrado y corregido: contenido adverso en el tramo
+máximo de RF-06 (10 s) fallaba de forma garantizada, no como caso
+límite — ver ADR-0016.
+
 ### Corregido
 - **RF-12 fallaba de forma garantizada al convertir contenido adverso en
   el tramo máximo de RF-06 (10 s)**: el piso de fotogramas de ADR-0007

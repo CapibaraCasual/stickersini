@@ -194,6 +194,25 @@ que debería seguir cumpliendo.
   Un número que se vaya a documentar como cumplido o incumplido se mide con
   invocaciones separadas, no con un bucle (ver ADR-0015,
   `docs/desarrollo/pruebas.md`).
+- **Un piso definido como tasa (por segundo, por unidad de tiempo) se
+  rompe en cuanto cambia la duración que multiplica esa tasa — definilo
+  como una cantidad fija si lo que necesitás garantizar es un mínimo
+  absoluto.** El piso de fotogramas de ADR-0007 era "5 fps", validado
+  solo para el caso de 3 s (15 fotogramas); para el máximo de RF-06
+  (10 s) daba 50, y ninguna calidad los hacía caber — RF-12 fallaba de
+  forma garantizada, no como caso límite. ADR-0016 lo reemplazó por una
+  cantidad fija (15) más un escalón de duración aparte para no perder la
+  fluidez que la tasa pretendía garantizar (`docs/desarrollo/pruebas.md`).
+- **Antes de gastar una codificación (o cualquier operación cara) para
+  confirmar si una configuración cabe, revisá si ya podés estimarlo por
+  proporción con un dato que ya mediste.** La reproducción del fallo de
+  RF-12 de arriba encontró que la Fase de bisección de calidad nunca
+  llegó a correr: un intento que la propia proporción (tamaño medido ×
+  relación con el límite) ya indicaba inviable (1512% del límite) se
+  gastó igual, agotando el presupuesto de tiempo antes de llegar al único
+  intento con alguna chance. Estimar primero no es prematuro: la misma
+  matemática que ya se usa para decidir cuántos fotogramas reducir sirve
+  para decidir si vale la pena intentar del todo (ADR-0016).
 
 ---
 
