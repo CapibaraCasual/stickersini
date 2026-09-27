@@ -122,6 +122,15 @@ vive en `docs/desarrollo/pruebas.md`: ahí van las trazas completas, las
 tablas de antes-y-después y el razonamiento numérico. Un ADR cita el
 resultado medido, no lo reemplaza ni lo repite completo.
 
+**Método: 5 corridas por caso, invocaciones separadas de `am instrument`,
+el peor caso decide (no la mediana).** Un número que se va a documentar
+como "cumple" o "no cumple" un presupuesto (RNF-08 y similares) se mide
+así, no con un bucle de varias corridas dentro del mismo proceso: eso
+falsea el resultado (ver "Errores conocidos"). Un valor ya medido y fijado
+(como `VIDEO_PREFILTER_TARGET_FPS`) no se toca —ni para subirlo ni para
+"confirmarlo"— sin repetir esta misma medición; no alcanza con razonar
+que debería seguir cumpliendo.
+
 ---
 
 ## Cómo compilar
@@ -171,6 +180,20 @@ resultado medido, no lo reemplaza ni lo repite completo.
 - **`adb` desde Git Bash reescribe un path remoto que empieza con `/`**
   (como `/sdcard/...`) a un path de Windows, rompiendo `adb push`/`pull`.
   Anteponer una barra extra (`//sdcard/...`) evita esa conversión.
+- **Correr muchas conversiones seguidas dentro de un mismo proceso de
+  `am instrument` (un bucle de varias celdas/corridas en un solo test) da
+  números que no reflejan un uso real de la app, y puede fabricar un
+  "incumplimiento" que no existe.** Pasó midiendo si adoptar el decode en
+  paralelo mejoraba el margen de RNF-08: una corrida de 135 conversiones
+  encadenadas en un proceso mostró que el fps de producción (8, ADR-0012)
+  rompía el tramo de 10 s (peor caso 23-24 s contra el tope de 20 s) — 5
+  invocaciones *separadas* de `am instrument`, con el mismo decoder, dieron
+  un rango tenso pero estable, muy por debajo del tope. La causa exacta no
+  se identificó (se sospecha de hilos que no terminan entre corridas), pero
+  el síntoma desaparece por completo sin encadenar corridas en un proceso.
+  Un número que se vaya a documentar como cumplido o incumplido se mide con
+  invocaciones separadas, no con un bucle (ver ADR-0015,
+  `docs/desarrollo/pruebas.md`).
 
 ---
 
