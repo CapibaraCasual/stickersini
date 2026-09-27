@@ -13,8 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -37,6 +39,7 @@ import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
 import io.github.capibaracasual.stickersini.stickers.domain.ManagedStickerPack
 import io.github.capibaracasual.stickersini.stickers.domain.Sticker
+import io.github.capibaracasual.stickersini.ui.theme.Radius
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,17 +66,20 @@ fun PackDetailScreen(identifier: String, onBack: () -> Unit, onPackDeleted: () -
 
     Scaffold { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = Spacing.large),
             verticalArrangement = Arrangement.spacedBy(Spacing.medium),
         ) {
-            TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
+            StickerScreenHeader(
+                title = currentPack?.name ?: stringResource(R.string.packs_title),
+                backLabel = stringResource(R.string.create_sticker_back),
+                onBack = onBack,
+            )
 
             if (currentPack == null) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.small)) {
-                    Text(text = currentPack.name, style = MaterialTheme.typography.titleLarge)
-                    if (!currentPack.isSeedPack) {
+                if (!currentPack.isSeedPack) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { showRenameDialog = true }) {
                             Text(text = stringResource(R.string.pack_detail_rename_action))
                         }
@@ -81,7 +87,11 @@ fun PackDetailScreen(identifier: String, onBack: () -> Unit, onPackDeleted: () -
                 }
 
                 if (currentPack.stickers.isEmpty()) {
-                    Text(text = stringResource(R.string.pack_detail_empty), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = stringResource(R.string.pack_detail_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
@@ -102,13 +112,21 @@ fun PackDetailScreen(identifier: String, onBack: () -> Unit, onPackDeleted: () -
                 }
 
                 if (currentPack.missingForMinimum > 0) {
-                    Text(text = stringResource(R.string.pack_missing_for_whatsapp, currentPack.missingForMinimum))
+                    Text(
+                        text = stringResource(R.string.pack_missing_for_whatsapp, currentPack.missingForMinimum),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     AddToWhatsAppButton(identifier = currentPack.identifier, packName = currentPack.name)
                 }
 
                 if (!currentPack.isSeedPack) {
-                    Button(onClick = { showDeleteConfirm = true }, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Text(text = stringResource(R.string.pack_detail_delete_pack_button))
                     }
                 }
@@ -134,11 +152,14 @@ fun PackDetailScreen(identifier: String, onBack: () -> Unit, onPackDeleted: () -
             title = { Text(text = stringResource(R.string.pack_detail_remove_sticker_confirm_title)) },
             text = { Text(text = stringResource(R.string.pack_detail_remove_sticker_confirm_message)) },
             confirmButton = {
-                TextButton(onClick = {
-                    repository.removeStickerFromUserPack(identifier, sticker.isAnimated, sticker.imageFileName)
-                    stickerPendingRemoval = null
-                    refreshTrigger++
-                }) {
+                TextButton(
+                    onClick = {
+                        repository.removeStickerFromUserPack(identifier, sticker.isAnimated, sticker.imageFileName)
+                        stickerPendingRemoval = null
+                        refreshTrigger++
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
                     Text(text = stringResource(R.string.pack_detail_remove_sticker_action))
                 }
             },
@@ -154,11 +175,14 @@ fun PackDetailScreen(identifier: String, onBack: () -> Unit, onPackDeleted: () -
             title = { Text(text = stringResource(R.string.pack_detail_delete_pack_confirm_title)) },
             text = { Text(text = stringResource(R.string.pack_detail_delete_pack_confirm_message)) },
             confirmButton = {
-                TextButton(onClick = {
-                    repository.deleteUserPack(identifier)
-                    showDeleteConfirm = false
-                    onPackDeleted()
-                }) {
+                TextButton(
+                    onClick = {
+                        repository.deleteUserPack(identifier)
+                        showDeleteConfirm = false
+                        onPackDeleted()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
                     Text(text = stringResource(R.string.pack_detail_delete_pack_confirm_button))
                 }
             },
@@ -191,12 +215,15 @@ private fun StickerThumbnail(
             Image(
                 bitmap = decoded.asImageBitmap(),
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(Radius.small)),
             )
         }
         if (showRemove) {
-            TextButton(onClick = onRemoveRequested) {
-                Text(text = stringResource(R.string.pack_detail_remove_sticker_action))
+            TextButton(
+                onClick = onRemoveRequested,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
+                Text(text = stringResource(R.string.pack_detail_remove_sticker_action), style = MaterialTheme.typography.bodySmall)
             }
         }
     }

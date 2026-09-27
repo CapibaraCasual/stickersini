@@ -43,6 +43,17 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   la inicial del nombre (anillo coral cuando está seleccionado, en vez
   de la lista de `RadioButton` anterior), botón principal + micro-copy
   de refuerzo, y tarjeta de éxito en tono menta.
+- `PackListScreen` y `PackDetailScreen` (gestión de packs, RF-15) con la
+  dirección visual: filas de pack con avatar por inicial e insignia
+  "Semilla", grid de stickers con esquinas redondeadas. Las acciones
+  destructivas (quitar sticker, eliminar pack) pasan a color de error en
+  vez de heredar el coral de la acción principal, para no confundir
+  "guardar"/"agregar a WhatsApp" con "borrar".
+
+`AddSeedPackScreen` (pantalla de inicio) queda fuera de este pase — sigue
+con la interfaz de prueba anterior ("Fase 0 — pack semilla"). No es un
+reskin: qué debería mostrar en su lugar es una decisión de producto
+propia, pendiente de encarar.
 
 ## [0.7.0-alpha] - 2026-09-26
 

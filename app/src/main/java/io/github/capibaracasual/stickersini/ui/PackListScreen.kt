@@ -10,8 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -29,9 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
 import io.github.capibaracasual.stickersini.stickers.domain.ManagedStickerPack
+import io.github.capibaracasual.stickersini.ui.theme.Radius
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
 
 /**
@@ -54,18 +56,27 @@ fun PackListScreen(onBack: () -> Unit, onOpenPack: (String) -> Unit) {
 
     Scaffold { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(Spacing.large),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = Spacing.large),
             verticalArrangement = Arrangement.spacedBy(Spacing.medium),
         ) {
-            TextButton(onClick = onBack) { Text(text = stringResource(R.string.create_sticker_back)) }
-            Text(text = stringResource(R.string.packs_title), style = MaterialTheme.typography.titleLarge)
+            StickerScreenHeader(
+                title = stringResource(R.string.packs_title),
+                backLabel = stringResource(R.string.create_sticker_back),
+                onBack = onBack,
+            )
 
-            Button(onClick = { showCreateDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(text = stringResource(R.string.packs_create_button))
-            }
+            StickerPrimaryButton(
+                text = stringResource(R.string.packs_create_button),
+                onClick = { showCreateDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             if (packs.isEmpty()) {
-                Text(text = stringResource(R.string.packs_empty), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = stringResource(R.string.packs_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
                     items(packs, key = { it.identifier }) { pack ->
@@ -90,20 +101,33 @@ fun PackListScreen(onBack: () -> Unit, onOpenPack: (String) -> Unit) {
 
 @Composable
 private fun PackRow(pack: ManagedStickerPack, onClick: () -> Unit) {
-    Card(onClick = onClick, shape = RoundedCornerShape(Spacing.small), modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(Spacing.medium)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = pack.name, style = MaterialTheme.typography.titleMedium)
-                if (pack.isSeedPack) {
-                    Text(text = stringResource(R.string.packs_seed_badge), style = MaterialTheme.typography.labelSmall)
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(Radius.card),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(Spacing.medium),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.medium),
+        ) {
+            PackAvatar(name = pack.name, size = 48.dp)
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.small), verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = pack.name, style = MaterialTheme.typography.titleMedium)
+                    if (pack.isSeedPack) {
+                        StickerBadge(text = stringResource(R.string.packs_seed_badge))
+                    }
                 }
+                val countText = if (pack.missingForMinimum > 0) {
+                    stringResource(R.string.packs_missing_count, pack.stickers.size, pack.missingForMinimum)
+                } else {
+                    stringResource(R.string.packs_sticker_count, pack.stickers.size)
+                }
+                Text(text = countText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            val countText = if (pack.missingForMinimum > 0) {
-                stringResource(R.string.packs_missing_count, pack.stickers.size, pack.missingForMinimum)
-            } else {
-                stringResource(R.string.packs_sticker_count, pack.stickers.size)
-            }
-            Text(text = countText, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
