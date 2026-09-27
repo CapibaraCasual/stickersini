@@ -7,6 +7,25 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Corregido
+- **RF-12 fallaba de forma garantizada al convertir contenido adverso en
+  el tramo máximo de RF-06 (10 s)**: el piso de fotogramas de ADR-0007
+  escalaba con la duración (5 fps × duración), y para 10 s daba 50
+  fotogramas — ninguna calidad hacía caber esa cantidad a 512×512, ni
+  siquiera calidad 0. ADR-0016 rediseña la escalera de degradación: piso
+  fijo de 15 fotogramas (no una tasa), resolución de codificación (384)
+  como escalón nuevo, y acortar la duración a 3 s como tercer escalón
+  antes de sacrificar fluidez — preservando siempre los 5 fps que ya
+  validó ADR-0007. RF-12 pasa a garantizar que siempre hay un resultado,
+  no solo a "informar si no es posible". El mensaje de error, para el
+  caso en que aun así no alcance, ahora incluye duración, fotogramas de
+  entrada, piso, y del último intento: fotogramas, calidad, tamaño
+  alcanzado y cuánto se pasó del límite. Cuando el resultado final quedó
+  más corto que el tramo elegido, `ConvertPreviewSaveScreen` avisa cuánto
+  y por qué; `TrimScreen` sugiere (no obliga) tramos de hasta 3 s.
+  Confirmado en dispositivo real con el caso que fallaba y con el caso de
+  referencia de ADR-0007 — ver `docs/desarrollo/pruebas.md`.
+
 ### Añadido
 - La gestión de packs (RF-15/RF-20) distingue si un pack ya se agregó a
   WhatsApp: la app no tiene forma de preguntarle a WhatsApp si un pack

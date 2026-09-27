@@ -57,4 +57,33 @@ object FrameTiming {
         }
         return result
     }
+
+    /**
+     * Recorta [durationsMs] a como mucho [targetTotalMs] de duración total,
+     * quedándose con un prefijo contiguo desde el principio — a diferencia
+     * de [reduceTo], que reparte fotogramas por proporción sin acortar la
+     * animación, esto la acorta de verdad (ADR-0016, escalón de duración de
+     * la escalera de degradación: solo se usa cuando ni calidad ni
+     * resolución alcanzaron a la duración completa). Devuelve los índices
+     * originales que sobreviven, sin tocar sus duraciones. Recortar desde
+     * el principio es la opción más simple, no una medida frente a
+     * recortar del final o del centro — queda como posible ajuste futuro
+     * si hiciera falta.
+     *
+     * Si [durationsMs] ya dura [targetTotalMs] o menos, devuelve todos los
+     * índices sin tocar. Garantiza al menos 1 índice en el resultado
+     * (el primer fotograma), incluso si su sola duración ya supera
+     * [targetTotalMs].
+     */
+    fun trimToDuration(durationsMs: List<Int>, targetTotalMs: Int): List<Int> {
+        if (durationsMs.sum() <= targetTotalMs) return durationsMs.indices.toList()
+        val kept = mutableListOf<Int>()
+        var accumulated = 0
+        for ((index, duration) in durationsMs.withIndex()) {
+            if (accumulated >= targetTotalMs) break
+            kept += index
+            accumulated += duration
+        }
+        return kept.ifEmpty { listOf(0) }
+    }
 }

@@ -72,20 +72,23 @@ class WebpAnimEncoderTest {
 
     @Test
     fun `si la calidad fija no basta, reduce fotogramas por proporcion en un solo paso`() {
-        // tamaño simulado = fotogramas x 50_000, sin depender de la calidad
-        // (fases 1 y 2 siempre codifican a 75): con 12 fotogramas no cabe
-        // (600_000), la proporción estima 10 fotogramas (500_000, justo cabe).
+        // tamaño simulado = fotogramas x 20_000, sin depender de la calidad
+        // (fases 1 y 2 siempre codifican a 75): con 40 fotogramas no cabe
+        // (800_000), la proporción estima 25 fotogramas (500_000, justo
+        // cabe) — por encima del piso fijo de 15 (ADR-0016), así que la
+        // proporción se usa tal cual, sin clampar.
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
                 assertEquals(75, quality)
-                val base = candidateFrames.size * 50_000
+                val base = candidateFrames.size * 20_000
                 if (minimizeSize) ByteArray(base - 5_000) else ByteArray(base)
             },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
         )
 
-        val result = encoder.encode(frames(12))
+        val result = encoder.encode(frames(40))
 
-        assertEquals(10, result.frameCount)
+        assertEquals(25, result.frameCount)
         assertEquals(75, result.quality)
         // 500_000 (100% del límite) dispara minimize_size, que lo deja en 495_000.
         assertEquals(495_000, result.bytes.size)
@@ -95,14 +98,15 @@ class WebpAnimEncoderTest {
     fun `si reducir fotogramas no basta, bisecta calidad despues, sin minimizar si no hace falta`() {
         // A calidad 75 el tamaño no baja de forma proporcional al reducir
         // fotogramas (hay un costo fijo de 300_000 que no depende del
-        // número de fotogramas): con 10 fotogramas (100 ms cada uno, 1 s
-        // total, piso de ADR-0007 = 5) no cabe (1_200_000); la proporción
-        // por sí sola estimaría 4, pero el piso la sube a 5, que tampoco
-        // cabe (750_000) — recién ahí entra la bisección de calidad, ya
-        // sobre esos 5 fotogramas. Al estar ya en el piso, prueba
-        // quality=0 primero (ver KDoc de QualitySearch); en este fake
-        // todas las calidades caben, así que igual converge a 74, con un
-        // intento más que si hubiera empezado por el medio.
+        // número de fotogramas): con 40 fotogramas no cabe (3_900_000); la
+        // proporción por sí sola estimaría 5, muy por debajo del piso fijo
+        // de 15 (ADR-0016) — como queda clampado, ADR-0016 no gasta un
+        // intento repitiendo calidad 75 a 15 fotogramas (ya se sabe, por la
+        // propia proporción, que no alcanzaría) y entra directo a la
+        // bisección de calidad sobre esos 15, probando quality=0 primero
+        // (piso, ver KDoc de QualitySearch). En este fake todas las
+        // calidades caben, así que igual converge a 74, con un intento más
+        // que si hubiera empezado por el medio.
         var minimizeSizeCalls = 0
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
@@ -114,46 +118,60 @@ class WebpAnimEncoderTest {
                     ByteArray(count * 1_000 + quality * 1_000)
                 }
             },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
         )
 
-        val result = encoder.encode(frames(10))
+        val result = encoder.encode(frames(40, durationMs = 50)) // 2 s total: por debajo del mínimo de acortar duración
 
-        assertEquals(5, result.frameCount)
+        assertEquals(15, result.frameCount)
         assertEquals(74, result.quality)
-        assertEquals(79_000, result.bytes.size)
-        // 79_000 es 15.8% del límite: no está "cerca", no debió minimizarse.
+        assertEquals(89_000, result.bytes.size)
+        // 89_000 es 17.8% del límite: no está "cerca", no debió minimizarse.
         assertEquals(0, minimizeSizeCalls)
     }
 
     @Test
-    fun `el piso de fps evita que la reduccion de fotogramas baje demasiado, aunque haga falta bajar mucho la calidad`() {
-        // 20 fotogramas de 100 ms (2 s totales): el piso de ADR-0007 a 5
-        // fps es 10 fotogramas. A calidad 75 cada fotograma "cuesta" 1_000_000,
-        // así que la proporción por sí sola estimaría 0 (500_000 / 20_000_000),
-        // muy por debajo del piso: debe clamparse a 10, no a 2.
+    fun `el piso fijo de fotogramas evita que la reduccion baje de 15, sin importar la duracion del clip`() {
+        // 20 fotogramas de 100 ms (2 s totales, por debajo del mínimo de
+        // acortar duración): a calidad 75 cada fotograma "cuesta" 1_000_000,
+        // así que la proporción por sí sola estimaría 0 (500_000 /
+        // 20_000_000), muy por debajo del piso: debe clamparse a 15
+        // (ADR-0016 — antes de este cambio, el piso salía de la duración
+        // del clip; ahora es siempre 15, sin importar cuánto dure).
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
                 val count = candidateFrames.size
                 if (quality == 75) ByteArray(count * 1_000_000) else ByteArray(count * 100 + quality * 100)
             },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
         )
 
         val result = encoder.encode(frames(20))
 
-        assertEquals(10, result.frameCount) // el piso, no los 0-2 que daría la proporción sola
+        assertEquals(15, result.frameCount) // el piso fijo, no los 0-2 que daría la proporción sola
         assertEquals(74, result.quality) // tuvo que bajar mucho la calidad para caber en el piso
         assertTrue(result.bytes.size <= 500_000)
     }
 
     @Test
-    fun `si ninguna combinacion cabe, falla informando RF-12`() {
+    fun `si ninguna combinacion cabe, falla informando con que se quedo mas cerca`() {
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { _, _, _ -> ByteArray(999_999) },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
         )
 
-        assertThrows(WebpEncodeException::class.java) {
-            encoder.encode(frames(5))
+        val error = assertThrows(WebpEncodeException::class.java) {
+            encoder.encode(frames(5, durationMs = 200)) // 1 s total
         }
+
+        // El mensaje debe alcanzar para reproducir el caso sin volver a
+        // correrlo: duración del clip, piso de fotogramas (ADR-0007),
+        // frameCount/quality/tamaño del último intento, y cuánto le
+        // faltaba — no solo "no se pudo" (ver reproducción de RF-12 con
+        // clip de 10 s, docs/desarrollo/pruebas.md).
+        assertTrue(error.message!!.contains("1000ms"))
+        assertTrue(error.message!!.contains("sizeBytes=999999"))
+        assertTrue(error.message!!.contains("por encima del límite"))
     }
 
     @Test
@@ -203,14 +221,150 @@ class WebpAnimEncoderTest {
                 }
             },
             hardTimeLimitMs = 70,
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
         )
 
-        val result = encoder.encode(frames(10))
+        val result = encoder.encode(frames(40, durationMs = 50)) // 2 s total
 
         assertTrue("el resultado entregado debe cumplir RF-10 igual", result.bytes.size <= 500_000)
-        assertEquals(5, result.frameCount) // el piso, fijado en la fase 2 antes de que el tiempo apriete
+        assertEquals(15, result.frameCount) // el piso, fijado en la fase 2 antes de que el tiempo apriete
         assertTrue("no debió alcanzar a converger a la calidad óptima (74) con tan poco tiempo", result.quality < 74)
         assertTrue("debió cortar bastante antes de agotar la bisección completa", calls < 8)
+    }
+
+    @Test
+    fun `no repite un intento de calidad 75 que la propia proporcion ya dice que no alcanzaria en el piso`() {
+        // Corrección de diseño de ADR-0016, motivada por la reproducción
+        // real del fallo de RF-12 (docs/desarrollo/pruebas.md): con 80
+        // fotogramas y un contenido tan adverso que la proporción estima
+        // menos fotogramas de los que el piso permite, repetir calidad 75
+        // ya en el piso es un intento que la propia matemática de la
+        // proporción ya dice que no va a caber — no debe gastarse. Calidad
+        // 0 cabe de entrada sin margen amplio (no dispara la búsqueda hacia
+        // arriba), así que un solo intento alcanza en el piso.
+        var calls = 0
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
+                calls++
+                val count = candidateFrames.size
+                if (quality == 75) ByteArray(count * 200_000) else ByteArray(300_000)
+            },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
+        )
+
+        val result = encoder.encode(frames(80, durationMs = 30)) // 2.4 s: por debajo del mínimo de acortar duración, aísla esta optimización de esa otra
+
+        assertEquals(15, result.frameCount)
+        assertEquals(0, result.quality)
+        // Fase 1 (80 fotogramas, calidad 75) + un solo intento en el piso
+        // (15 fotogramas, calidad 0): sin el intento redundante de calidad
+        // 75 a 15 fotogramas que la proporción ya descartaba.
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `si la proporcion clampa contra el piso en un clip largo, acorta la duracion en vez de aceptar el piso estirado`() {
+        // Corrección de diseño encontrada al confirmar ADR-0016 en
+        // dispositivo real (docs/desarrollo/pruebas.md): el piso fijo de
+        // 15 fotogramas, estirado sobre los 10 s completos del clip que
+        // motivó este ADR, SÍ llegaba a caber (15 fotogramas repartidos en
+        // 10 s son 1.5 fps) — pero eso invierte el orden de sacrificio que
+        // pide ADR-0016 (duración antes que fluidez): con este fake, el
+        // piso estirado sobre los 8 s completos cabría igual si se
+        // aceptara sin más (calidad 0 siempre cabe, sin importar cuántos
+        // fotogramas ni qué duración representen), así que la única forma
+        // de confirmar que se prefirió acortar es mirar cuánto se acortó.
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, _ ->
+                if (quality == 75) ByteArray(candidateFrames.size * 200_000) else ByteArray(300_000)
+            },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
+        )
+
+        val result = encoder.encode(frames(80, durationMs = 100)) // 8 s: por encima del mínimo de acortar duración
+
+        assertEquals(15, result.frameCount)
+        assertEquals(8_000L, result.requestedDurationMs)
+        assertTrue("debió acortar la duración en vez de estirar el piso sobre los 8 s completos", result.shortenedByMs > 0)
+        assertEquals(3_000L, result.frameDurationsMs.sumOf { it.toLong() }) // acortado al mínimo de ADR-0016
+    }
+
+    @Test
+    fun `si ni calidad ni piso alcanzan a 512, prueba la resolucion degradada antes de tocar la duracion`() {
+        // ADR-0016, escalón 2: agotada la calidad a 512 (ni siquiera
+        // calidad 0 cupo), el siguiente escalón es 384, no acortar la
+        // duración todavía. `resolutionDegrader` es el punto de inyección
+        // (`Bitmap.createScaledBitmap` real no funciona en un test JVM
+        // puro): acá se espía qué resolución pide en vez de escalar de
+        // verdad, y el encoder falso hace caber recién el tercer intento
+        // (calidad 0 a 384), simulando que ni Fase 1 ni el piso a 512
+        // encontraron nada.
+        val degradedResolutions = mutableListOf<Int>()
+        var callCount = 0
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { _, _, _ ->
+                callCount++
+                if (callCount < 3) ByteArray(999_999) else ByteArray(300_000)
+            },
+            resolutionDegrader = { candidateFrames, resolution ->
+                degradedResolutions += resolution
+                candidateFrames
+            },
+        )
+
+        val result = encoder.encode(frames(15, durationMs = 100)) // 1.5 s: por debajo del mínimo de acortar duración
+
+        assertEquals(15, result.frameCount)
+        assertEquals(0, result.quality)
+        assertEquals(300_000, result.bytes.size)
+        assertEquals(3, callCount) // calidad 75 a 512, calidad 0 a 512, calidad 0 a 384
+        assertEquals(listOf(384), degradedResolutions) // un solo escalón de resolución, nunca 320 (ADR-0016)
+    }
+
+    @Test
+    fun `si ni calidad ni resolucion alcanzan a la duracion completa, acorta el clip antes de bajar del piso`() {
+        // ADR-0016, escalón 3: un clip de 6 s (por encima del mínimo de
+        // 3 s antes del último recurso) donde ni 512 ni 384 alcanzan a
+        // ningún número de fotogramas. Antes de estirar el piso de 15
+        // fotogramas sobre los 6 s completos (2.5 fps, choppy), se acorta
+        // el clip a 3 s y se repite calidad+resolución sobre ese tramo más
+        // corto — acá con un encoder falso que hace caber cualquier cosa
+        // codificada sobre fotogramas ya acortados (identificados por
+        // `durationMs`, que `FrameTiming.trimToDuration` no toca).
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, _, _ ->
+                val isTrimmed = candidateFrames.sumOf { it.durationMs } <= 3_000
+                if (isTrimmed) ByteArray(300_000) else ByteArray(999_999)
+            },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
+        )
+
+        val result = encoder.encode(frames(60, durationMs = 100)) // 6 s
+
+        assertEquals(3_000L, result.frameDurationsMs.sumOf { it.toLong() })
+        assertEquals(6_000L, result.requestedDurationMs)
+        assertEquals(3_000L, result.shortenedByMs) // la interfaz usa esto para avisar cuánto se acortó
+        assertTrue(result.bytes.size <= 500_000)
+    }
+
+    @Test
+    fun `si ni acortar la duracion alcanza, entrega igual un resultado por debajo del piso (garantia de RF-12)`() {
+        // ADR-0016, escalón 4 (red de seguridad final): ninguna medición
+        // encontró un caso que llegue hasta acá, pero RF-12 exige que
+        // siempre haya una salida. Encoder falso que nunca cabe salvo con
+        // 2 fotogramas o menos: ni acortar a 3 s con calidad+resolución
+        // alcanza, así que cae al último recurso.
+        val encoder = WebpAnimEncoder(
+            singleShotEncoder = SingleShotWebpEncoder { candidateFrames, _, _ ->
+                if (candidateFrames.size <= 2) ByteArray(50_000) else ByteArray(999_999)
+            },
+            resolutionDegrader = { candidateFrames, _ -> candidateFrames },
+        )
+
+        val result = encoder.encode(frames(60, durationMs = 100)) // 6 s
+
+        assertEquals(2, result.frameCount) // por debajo del piso normal de 15: el último recurso
+        assertTrue(result.bytes.size <= 500_000)
     }
 
     @Test

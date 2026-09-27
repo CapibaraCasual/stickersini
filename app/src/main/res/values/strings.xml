@@ -20,6 +20,8 @@
     <string name="convert_title">Guardar sticker</string>
     <string name="convert_animated_badge">Animado</string>
     <string name="convert_meta">%1$s · %2$d KB · 512×512</string>
+    <string name="convert_shortened_notice">Se acortó a %1$s (de %2$s elegidos) para entrar en el límite de tamaño de WhatsApp.</string>
+    <string name="trim_shorter_suggestion">Tip: un tramo de hasta 3 s suele dar mejor calidad de imagen.</string>
     <string name="create_sticker_stage_decoding_video">Decodificando video: %1$d/%2$d fotogramas</string>
     <string name="create_sticker_stage_decoding_image">Decodificando imagen…</string>
     <string name="create_sticker_stage_encoding">Codificando WebP (intento %1$d)…</string>

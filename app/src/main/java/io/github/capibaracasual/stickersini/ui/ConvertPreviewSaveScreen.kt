@@ -197,6 +197,26 @@ fun ConvertPreviewSaveScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                // ADR-0016: acortar la duración solo se sabe si hizo falta
+                // después de intentar codificar, nunca antes — por eso el
+                // aviso vive acá (con el resultado ya listo) y no en
+                // TrimScreen.
+                pendingResult?.let { result ->
+                    if (result.shortenedByMs > 0) {
+                        Text(
+                            text = stringResource(
+                                R.string.convert_shortened_notice,
+                                formatSeconds(result.frameDurationsMs.sumOf { it.toLong() }),
+                                formatSeconds(result.requestedDurationMs),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
                 if (savedPack == null) {
                     Text(text = stringResource(R.string.create_sticker_choose_pack_title), style = MaterialTheme.typography.titleMedium)
 

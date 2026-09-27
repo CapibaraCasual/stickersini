@@ -2052,3 +2052,163 @@ en 8 (techo real, no elección conservadora — ADR-0012 más la investigación
 del encoder de esta sección), decode en paralelo adoptado (ADR-0015),
 falso positivo del RNF-08 corregido y explicado. Vuelve la atención a la
 interfaz.
+
+## Fase 3 — RF-12 falla en clips de 10 s: la escalera de degradación se agota antes de encontrar una salida (2026-09-27)
+
+Reportado desde uso real: convertir el tramo máximo de RF-06 (10 s) con
+contenido adverso lanza `WebpEncodeException` en vez de entregar un
+sticker. Causa encontrada antes de medir nada: el piso de ADR-0007 está
+definido como **5 fps**, no como una cantidad de fotogramas — medido y
+validado únicamente para el caso de referencia de 3 s (15 fotogramas). Para
+10 s da `ceil(10000/1000×5) = 50` fotogramas, 3.3× lo único confirmado.
+
+### Reproducción
+
+`WebpAnimEncoderPerformanceTest.reproduceRf12_80fotogramas10s_contenidoAdverso`
+(dispositivo real, Redmi Note 14): 80 fotogramas de 125 ms (8 fps de
+prefiltro × 10 s, la entrada real que llega desde
+`StickerConversionPipeline`), contenido adverso.
+
+```
+intento #1: frameCount=80 quality=75 sizeBytes=12898616 elapsedMs=13370
+intento #2: frameCount=50 quality=75 sizeBytes=8059798  elapsedMs=8254
+RF-12: no se pudo producir un WebP de 500000 bytes o menos para un clip de
+10000ms (80 fotogramas de entrada, piso de fotogramas=50 por ADR-0007).
+Último intento (#2, de 2 en total): frameCount=50 quality=75
+sizeBytes=8059798 (7559798 bytes por encima del límite, 1512.0% de exceso),
+dentro de 20000ms de presupuesto.
+```
+
+**Hallazgo que no se esperaba: la Fase 3 (bisección de calidad, que
+empieza por calidad 0 en el piso — ver KDoc de `QualitySearch`) nunca
+llegó a correr.** El intento único de la Fase 2 (50 fotogramas, calidad
+75) tardó 8254 ms; sumado a los 13370 ms de la Fase 1, el presupuesto de
+20000 ms ya estaba agotado (`estimatedTimeAllows` corta antes de lanzar,
+correcto por diseño) cuando debía empezar la Fase 3. El codificador ni
+siquiera alcanzó a probar calidad 0 a 50 fotogramas — no es solo que la
+combinación no quepa, es que el tiempo se gastó por completo en un
+intento que, a esa calidad, nunca tuvo chance.
+
+Traza completa vía `adb pull`:
+```
+adb pull //sdcard/Android/data/io.github.capibaracasual.stickersini.webp.test/files/webp_rf12_repro_trace.txt
+```
+(la barra inicial duplicada evita que Git Bash reescriba el path remoto — ver CLAUDE.md, "Errores conocidos").
+
+### Barrido completo: fotogramas × calidad × resolución de codificación
+
+`DegradationLadderSweepTest` (dispositivo real, una sola pasada por
+configuración — es una medición de tamaño, no de tiempo contra un
+presupuesto, mismo criterio que ya usó `WebpFrameFloorMeasurementTest`
+para no necesitar el método de 5 corridas). Contenido adverso generado
+directamente a cada resolución candidata y escalado a 512×512 antes de
+codificar (mismo patrón que `ComparisonStickerGeneratorTest`): el WebP
+final siempre es 512×512 exactos, lo que cambia es cuánta entropía real
+tiene la imagen que se escala hacia arriba.
+
+| Fotogramas | Calidad | Resolución | Bytes | % del límite | ms | ¿Cabe? |
+|---|---|---|---|---|---|---|
+| 50 | 75 | 512 | 8 064 396 | 1613% | 10538 | No |
+| 50 | 75 | 384 | 5 683 370 | 1137% | 8815 | No |
+| 50 | 75 | 320 | 6 407 372 | 1282% | 8695 | No |
+| 50 | 50 | 512 | 6 878 632 | 1376% | 9790 | No |
+| 50 | 50 | 384 | 4 750 958 | 950% | 8564 | No |
+| 50 | 50 | 320 | 5 233 462 | 1047% | 8383 | No |
+| 50 | 25 | 512 | 5 444 898 | 1089% | 9471 | No |
+| 50 | 25 | 384 | 3 604 196 | 721% | 8265 | No |
+| 50 | 25 | 320 | 3 828 108 | 766% | 8004 | No |
+| 50 | 0 | 512 | 1 176 250 | 235% | 8195 | No |
+| **50** | **0** | **384** | **458 816** | **92%** | 7364 | **Sí** |
+| **50** | **0** | **320** | **445 352** | **89%** | 7066 | **Sí** |
+| 30 | 75 | 512 | 4 838 184 | 968% | 6055 | No |
+| 30 | 75 | 384 | 3 409 650 | 682% | 5296 | No |
+| 30 | 75 | 320 | 3 844 460 | 769% | 5213 | No |
+| 30 | 50 | 512 | 4 125 890 | 825% | 5890 | No |
+| 30 | 50 | 384 | 2 851 320 | 570% | 5155 | No |
+| 30 | 50 | 320 | 3 138 600 | 628% | 5025 | No |
+| 30 | 25 | 512 | 3 266 680 | 653% | 5653 | No |
+| 30 | 25 | 384 | 2 163 050 | 433% | 4969 | No |
+| 30 | 25 | 320 | 2 296 900 | 459% | 4809 | No |
+| 30 | 0 | 512 | 703 138 | 141% | 4906 | No |
+| **30** | **0** | **384** | **274 510** | **55%** | 4419 | **Sí** |
+| **30** | **0** | **320** | **266 186** | **53%** | 4225 | **Sí** |
+| 24 | 75 | 512 | 3 869 904 | 774% | 4850 | No |
+| 24 | 75 | 384 | 2 730 554 | 546% | 4237 | No |
+| 24 | 75 | 320 | 3 075 444 | 615% | 4175 | No |
+| 24 | 50 | 512 | 3 299 548 | 660% | 4713 | No |
+| 24 | 50 | 384 | 2 280 926 | 456% | 4127 | No |
+| 24 | 50 | 320 | 2 511 038 | 502% | 4021 | No |
+| 24 | 25 | 512 | 2 611 552 | 522% | 4525 | No |
+| 24 | 25 | 384 | 1 731 314 | 346% | 3967 | No |
+| 24 | 25 | 320 | 1 837 526 | 368% | 3838 | No |
+| 24 | 0 | 512 | 561 278 | 112% | 3920 | No |
+| **24** | **0** | **384** | **219 430** | **44%** | 3527 | **Sí** |
+| **24** | **0** | **320** | **212 724** | **43%** | 3373 | **Sí** |
+| 15 | 75 | 512 | 2 417 928 | 484% | 3019 | No |
+| 15 | 75 | 384 | 1 707 086 | 341% | 2634 | No |
+| 15 | 75 | 320 | 1 920 212 | 384% | 2595 | No |
+| 15 | 50 | 512 | 2 061 600 | 412% | 2925 | No |
+| 15 | 50 | 384 | 1 425 296 | 285% | 2569 | No |
+| 15 | 50 | 320 | 1 567 012 | 313% | 2501 | No |
+| 15 | 25 | 512 | 1 631 708 | 326% | 2819 | No |
+| 15 | 25 | 384 | 1 081 750 | 216% | 2474 | No |
+| 15 | 25 | 320 | 1 147 738 | 230% | 2397 | No |
+| **15** | **0** | **512** | **348 426** | **70%** | 2447 | **Sí** |
+| **15** | **0** | **384** | **136 628** | **27%** | 2202 | **Sí** |
+| **15** | **0** | **320** | **132 528** | **27%** | 2112 | **Sí** |
+
+Traza completa vía `adb pull`:
+```
+adb pull //sdcard/Android/data/io.github.capibaracasual.stickersini.webp.test/files/webp_degradation_ladder_sweep_trace.txt
+```
+
+### Qué dice la medición
+
+- **A 512 (la resolución de producción de hoy), solo 15 fotogramas caben, y solo a calidad 0.** 24, 30 y 50 fotogramas no caben a 512 en ninguna calidad, ni siquiera 0 (112%, 141% y 235% del límite respectivamente). Con la escalera actual (fotogramas + calidad, sin resolución) no hay ninguna salida válida por encima de 15 fotogramas — el fallo de RF-12 no es un caso límite raro, es el resultado garantizado para cualquier duración que fuerce el piso por encima de 15.
+- **La resolución sí es el escalón que faltaba: agregarla resuelve exactamente los tres frameCount que fallaban a 512.** A calidad 0, bajar a 384 o 320 hace caber 50, 30 y 24 fotogramas — casos que a 512 no tenían ninguna salida. Confirma la sospecha del README ("Tema abierto", barrido del 2026-09-26): la resolución no estaba conectada a la degradación, y debería estarlo.
+- **384 alcanza en todos los casos que necesitaron resolución; 320 no agrega ninguna salida nueva que 384 no diera ya.** Los tres frameCount que necesitan bajar resolución (50, 30, 24) ya caben en 384. 320 da un margen apenas mayor (2-3 puntos porcentuales) al mismo frameCount, nunca resuelve un caso que 384 no resolviera. Un solo escalón de resolución (384) parece alcanzar; agregar 320 es complejidad sin beneficio medido, coherente con la nota del README del 2026-09-26 sobre nitidez.
+- **Hallazgo no esperado, sin explicar: a calidad 75/50/25, 320 pesa más que 384 — no monotónico.** En las 12 combinaciones de esas tres calidades (4 frameCount × 3 calidades), 320 fue más grande que 384 las 12 veces (ejemplo: 50f/q75, 384→5 683 370 vs 320→6 407 372). Recién a calidad 0 se invierte y 320 sí pesa menos que 384, como "más chico de origen → menos entropía" haría esperar. No se investigó la causa (podría ser interacción entre el factor de escalado de cada resolución y el tamaño de bloque del codificador); el dato importa para la implementación: **no asumir que la escalera de resolución es monótona sin medir el punto exacto que se vaya a usar.**
+- **Bajar resolución también achica el tiempo, no solo el tamaño** — inesperado, porque el WebP final siempre codifica 512×512 (la resolución candidata solo se re-escala hacia arriba antes de codificar, el codificador nunca ve menos píxeles). Ejemplo: 50f/q75, 512→10538 ms vs 384→8815 ms (-16%). La hipótesis más simple es que una imagen escalada desde una resolución menor tiene más redundancia local (menos "ruido de verdad" tras el filtro bilineal), y eso abarata la compresión además de reducir el tamaño — no medido en detalle, pero consistente en las 16 comparaciones 512-vs-384 del barrido.
+- **Un piso de fotogramas fijo (no una tasa) resolvería el fallo de 10 s por sí solo, sin necesitar el escalón de resolución — pero reintroduce el defecto original de ADR-0007 si se aplica ingenuamente.** Si el piso fuera una constante de 15 fotogramas (en vez de `ceil(duración×5fps)`), un clip de 10 s se reduciría a 15 fotogramas en vez de 50, y 15f/q0/512 ya cabe (348 426 bytes, dato confirmado en este mismo barrido). El problema: 15 fotogramas repartidos en 10 s son 1.5 fps — exactamente el defecto que ADR-0007 corrigió para el caso de 3 s (ahí terminaba en 1 fps con 3 de 30). Un piso de fotogramas fijo, sin acompañarlo de acortar la duración cuando hace falta, traslada el defecto de "muy pocos fotogramas" a "fotogramas correctos, estirados en demasiado tiempo".
+- **Acortar la duración en vez de estirar el piso da mucho más margen que forzarlo a la duración completa.** 24 fotogramas a 5 fps son 4.8 s — si en vez de reducir un clip de 10 s a 50 fotogramas (piso actual, sin solución a 512) se acortara el tramo a considerar a ~4.8 s y se redujera a 24 fotogramas sobre ese tramo más corto, el resultado (24f/384 o 320/q0) tiene 43-44% de margen, muy por encima del 8-11% que da forzar 50 fotogramas sobre los 10 s completos. Acortar duración antes de agotar calidad+resolución en el frameCount pedido parece más barato, en tamaño, que preservar la duración completa a cualquier costo.
+
+### Confirmación en dispositivo real: ADR-0016 implementado
+
+Con la escalera nueva implementada (piso fijo de 15, resolución 384 como
+escalón, acortar a 3 s antes del último recurso, y la corrección de
+estimar antes de intentar), confirmado en el mismo Redmi Note 14 con el
+caso que fallaba y con el caso de referencia de ADR-0007:
+
+**Caso que fallaba (10 s, contenido adverso, RF-06 al máximo):**
+```
+intento #1: frameCount=80 quality=75 sizeBytes=12898616 elapsedMs=13239
+intento #2: frameCount=24 quality=75 sizeBytes=3869904  elapsedMs=3950   (24 = 3 s acortados a 8 fps de prefiltro)
+intento #3: frameCount=15 quality=0  sizeBytes=348574   elapsedMs=1904
+TOTAL: 3 codificaciones, 19114ms, éxito — frameCount=15, quality=0, 348574 bytes
+```
+Ya no falla. El resultado queda acortado a 3 s (15 fotogramas a 5 fps
+real), no estirado sobre los 10 s completos — la primera implementación
+de este ADR sí llegaba a un resultado válido en este caso (15 fotogramas
+repartidos en los 10 s completos, 1.5 fps, cabía a calidad 0/512 sin
+necesitar ningún otro escalón), pero eso invertía el orden de sacrificio
+que pide la Decisión: aceptaba fluidez peor que 5 fps en vez de acortar
+la duración primero. Corregido antes de esta confirmación — ver la
+Decisión, punto 5, y el commit que lo corrige.
+
+**Caso de referencia de ADR-0007 (3 s, contenido adverso):**
+```
+intento #1: frameCount=30 quality=75 sizeBytes=4838184 elapsedMs=4958
+intento #2: frameCount=15 quality=0  sizeBytes=348516  elapsedMs=1890
+TOTAL: 2 codificaciones, 6863ms, éxito — frameCount=15, quality=0, 348516 bytes
+```
+El resultado (348516 bytes) coincide con el valor histórico de ADR-0007
+(348516 bytes) — mismo piso, mismo resultado. Lo que cambió es el
+camino: 2 codificaciones en vez de las 8 que documentó la confirmación
+original de ADR-0007 (19825 ms, 175 ms de margen contra el tope de
+20000 ms) — la corrección de "estimar antes de intentar" (punto 5 de la
+Decisión) evita el intento redundante de calidad 75 a 15 fotogramas que
+antes se gastaba sin necesidad. Margen contra RNF-08 mejora de 175 ms a
+más de 13 000 ms en este caso.
+
+**Contenido representativo (3 s):** sin cambios, 59672 bytes a calidad 75
+en una sola pasada — no toca ningún escalón nuevo.

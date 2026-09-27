@@ -168,6 +168,39 @@ class WebpAnimEncoderPerformanceTest {
         println("StickersiniPerfBaseline: $totalLine")
     }
 
+    /**
+     * Reproduce el fallo de RF-12 reportado en un clip de 10 s (el máximo
+     * de RF-06): 80 fotogramas a 125 ms (8 fps de prefiltro, ADR-0012), la
+     * misma entrada real que le llega a [WebpAnimEncoder] desde
+     * `StickerConversionPipeline` para el peor caso de duración. El piso de
+     * fotogramas de ADR-0007 (5 fps) nunca se midió para más de 3 s: acá da
+     * `ceil(10000/1000*5) = 50`, muy por encima de los 15 fotogramas que sí
+     * se confirmaron alcanzables — y, para contenido adverso, 50 fotogramas
+     * no caben en 500 KB ni a calidad 0 (ver la traza de este test y
+     * `docs/desarrollo/pruebas.md`).
+     */
+    @Test
+    fun reproduceRf12_80fotogramas10s_contenidoAdverso() {
+        val trace = TraceWriter("webp_rf12_repro_trace.txt")
+        val runExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "webp-run").apply { isDaemon = true }
+        }
+        val prefilterFrameCount = 80
+        val prefilterFrameDurationMs = 125 // 8 fps (ADR-0012): 1000/8 = 125
+
+        val adverso = (0 until prefilterFrameCount).map { i -> WebpFrame(noisyBitmap(i), prefilterFrameDurationMs) }
+
+        try {
+            runStrategy("adverso_10s_80fotogramas", adverso, trace, runExecutor)
+        } finally {
+            runExecutor.shutdownNow()
+            trace.close()
+        }
+
+        println("StickersiniPerfBaseline: reproducción RF-12, traza completa en ${trace.file.absolutePath}")
+        assertTrue("el test debe terminar y dejar traza, pase lo que pase", trace.file.exists())
+    }
+
     @Test
     fun estrategiaAdr0006_30fotogramas_ambosContenidos() {
         val trace = TraceWriter("webp_strategy_trace.txt")

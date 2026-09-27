@@ -39,6 +39,17 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
+ * Umbral de la sugerencia (no un límite: RF-06 sigue permitiendo hasta
+ * [MAX_CLIP_DURATION_MS]) de que un tramo más corto suele dar mejor
+ * calidad — mismo número que el mínimo de duración antes del último
+ * recurso de la escalera de degradación (ADR-0016,
+ * `MIN_DURATION_MS_BEFORE_LAST_RESORT` en `:webp`): no compartido como
+ * constante entre módulos a propósito, es un umbral de sugerencia de UI,
+ * no una regla de negocio que deba vivir en un solo lugar.
+ */
+private const val SUGGESTED_MAX_TRIM_MS = 3_000f
+
+/**
  * RF-06: elegir el tramo del video de origen (hasta [MAX_CLIP_DURATION_MS])
  * que se va a convertir. Un `RangeSlider` de Material 3 sobre la duración
  * real del video (leída con [MediaMetadataRetriever], no asumida): mover un
@@ -129,6 +140,20 @@ fun TrimScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // ADR-0016: sugerencia, no límite — RF-06 sigue permitiendo
+                // hasta MAX_CLIP_DURATION_MS. Un tramo más largo puede
+                // necesitar acortarse solo si el contenido lo exige (aviso
+                // real en ConvertPreviewSaveScreen); esto es un adelanto de
+                // que un tramo más corto tiene más chance de no necesitarlo.
+                if (range.endInclusive - range.start > SUGGESTED_MAX_TRIM_MS) {
+                    Text(
+                        text = stringResource(R.string.trim_shorter_suggestion),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 RangeSlider(
                     value = range,
                     onValueChange = { newRange -> range = clampWindow(range, newRange, maxWidthMs.toFloat(), duration.toFloat()) },
