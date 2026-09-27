@@ -68,11 +68,19 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   destructivas (quitar sticker, eliminar pack) pasan a color de error en
   vez de heredar el coral de la acción principal, para no confundir
   "guardar"/"agregar a WhatsApp" con "borrar".
-
-`AddSeedPackScreen` (pantalla de inicio) queda fuera de este pase — sigue
-con la interfaz de prueba anterior ("Fase 0 — pack semilla"). No es un
-reskin: qué debería mostrar en su lugar es una decisión de producto
-propia, pendiente de encarar.
+- `AddSeedPackScreen` (pantalla de inicio) deja de ser el arnés de
+  prueba de Fase 0 ("Fase 0 — pack semilla", mensajes de resultado en
+  crudo): ahora la acción principal es crear un sticker (con el mismo
+  botón del resto del flujo) y "Mis packs" queda como acción secundaria,
+  de menor peso visual. El botón suelto "Añadir pack a WhatsApp" se
+  saca del todo — esa acción ya existe, por cada pack, en
+  `PackDetailScreen` y en la tarjeta de éxito de
+  `ConvertPreviewSaveScreen`; tenerla también acá era la misma acción
+  triplicada en un lugar que ya no le correspondía. La portada suma una
+  ilustración de tres stickers en abanico (misma dirección visual) y
+  una bajada de una línea. Sin cambios en el `ContentProvider` ni en el
+  pack semilla: esto es solo la pantalla, no la validación de Fase 0
+  (ya cerrada, ADR-0004).
 
 ## [0.7.0-alpha] - 2026-09-26
 
