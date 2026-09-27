@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.provider.WhatsAppStickerIntent
+import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
 
 /**
@@ -26,11 +27,15 @@ import io.github.capibaracasual.stickersini.ui.theme.Spacing
  * Compartido entre `ConvertPreviewSaveScreen` (justo después de guardar un
  * sticker nuevo) y `PackDetailScreen` (RF-15, para cualquier pack ya
  * existente): la acción es la misma en los dos casos, solo cambia desde
- * dónde se dispara.
+ * dónde se dispara. Cuando WhatsApp confirma con éxito, registra la
+ * cantidad de stickers de ese momento (único lugar donde se llama
+ * [StickerPackRepository.markAddedToWhatsApp]) para que la gestión de packs
+ * pueda mostrar si un pack está al día o cambió después.
  */
 @Composable
 fun AddToWhatsAppButton(identifier: String, packName: String) {
     val context = LocalContext.current
+    val repository = remember { StickerPackRepository(context.applicationContext) }
     var resultMessage by remember { mutableStateOf<String?>(null) }
     val noActivityMessage = stringResource(R.string.result_no_activity)
     val whatsAppNotInstalledMessage = stringResource(R.string.result_whatsapp_not_installed)
@@ -39,7 +44,12 @@ fun AddToWhatsAppButton(identifier: String, packName: String) {
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        resultMessage = if (result.resultCode == Activity.RESULT_OK) successMessage else null
+        if (result.resultCode == Activity.RESULT_OK) {
+            repository.markAddedToWhatsApp(identifier)
+            resultMessage = successMessage
+        } else {
+            resultMessage = null
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {

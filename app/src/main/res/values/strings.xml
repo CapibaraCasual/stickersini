@@ -48,6 +48,9 @@
     <string name="packs_create_button">Crear pack</string>
     <string name="packs_empty">Todavía no creaste ningún pack propio.</string>
     <string name="packs_seed_badge">Semilla</string>
+    <string name="packs_whatsapp_add_badge">Agregar a WhatsApp</string>
+    <string name="packs_whatsapp_update_badge">Actualizar en WhatsApp</string>
+    <string name="packs_whatsapp_up_to_date_badge">En WhatsApp</string>
     <string name="packs_sticker_count">%1$d stickers</string>
     <string name="packs_missing_count">%1$d/3 · faltan %2$d</string>
     <string name="packs_create_dialog_title">Nuevo pack</string>

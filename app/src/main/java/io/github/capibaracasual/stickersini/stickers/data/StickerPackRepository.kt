@@ -36,18 +36,46 @@ class StickerPackRepository(private val context: Context) {
     private val assetRepository = StickerPackAssetRepository(context)
     private val userStickerRepository = UserPackStickerRepository(context)
     private val userPackManifest = UserPackManifestRepository(context)
+    private val whatsAppConfirmations = WhatsAppConfirmationRepository(context)
 
     /** RF-15: todos los packs, válidos para WhatsApp o no todavía (ADR-0014) — para la pantalla de gestión. */
     fun getAllManagedPacks(): List<ManagedStickerPack> {
         val seedPacks = assetRepository.getAllPacks().map { base ->
             val extras = userStickerRepository.getExtraStickers(base.identifier, base.isAnimatedPack)
-            ManagedStickerPack(base.identifier, base.name, base.isAnimatedPack, base.stickers + extras, isSeedPack = true)
+            ManagedStickerPack(
+                base.identifier,
+                base.name,
+                base.isAnimatedPack,
+                base.stickers + extras,
+                isSeedPack = true,
+                confirmedStickerCount = whatsAppConfirmations.getConfirmedStickerCount(base.identifier),
+            )
         }
         val userPacks = userPackManifest.getAll().map { entry ->
             val stickers = userStickerRepository.getExtraStickers(entry.identifier, entry.isAnimated)
-            ManagedStickerPack(entry.identifier, entry.name, entry.isAnimated, stickers, isSeedPack = false)
+            ManagedStickerPack(
+                entry.identifier,
+                entry.name,
+                entry.isAnimated,
+                stickers,
+                isSeedPack = false,
+                confirmedStickerCount = whatsAppConfirmations.getConfirmedStickerCount(entry.identifier),
+            )
         }
         return seedPacks + userPacks
+    }
+
+    /**
+     * RF-20: registra que el usuario confirmó agregar [identifier] a
+     * WhatsApp, con la cantidad de stickers que tiene *ahora* — ver
+     * [ManagedStickerPack.whatsAppStatus]. Llamado desde
+     * [io.github.capibaracasual.stickersini.ui.AddToWhatsAppButton] cuando
+     * el intent de WhatsApp vuelve con éxito: es el único momento en que la
+     * app tiene ese dato.
+     */
+    fun markAddedToWhatsApp(identifier: String) {
+        val pack = getAllManagedPacks().find { it.identifier == identifier } ?: return
+        whatsAppConfirmations.markConfirmed(identifier, pack.stickers.size)
     }
 
     /** Solo los que ya llegan al mínimo de RF-16: lo que expone el `ContentProvider` a WhatsApp (ADR-0014). */

@@ -7,6 +7,21 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Añadido
+- La gestión de packs (RF-15/RF-20) distingue si un pack ya se agregó a
+  WhatsApp: la app no tiene forma de preguntarle a WhatsApp si un pack
+  sigue instalado (el contrato WAStickerApps no tiene esa consulta), así
+  que registra la cantidad de stickers que tenía el pack la última vez
+  que el usuario confirmó agregarlo (`image_data_version` de ese
+  momento) y la compara contra la de ahora. Tres estados, visibles como
+  insignia en `PackListScreen`: nunca confirmado ("Agregar a WhatsApp",
+  borde coral), confirmado sin cambios ("En WhatsApp", menta) y
+  confirmado pero desactualizado ("Actualizar en WhatsApp", coral
+  sólido) — este último cierra un agujero que existía antes: agregar un
+  sticker a un pack que ya estaba en WhatsApp no avisaba que había que
+  volver a notificarlo. La insignia es un indicador, no un botón: la
+  acción sigue viviendo solo en `PackDetailScreen`.
+
 ### Cambiado
 - Paleta, tipografía y radios de esquina de "Plancha de stickers" —
   dirección visual elegida entre tres propuestas el 2026-09-27: cálida

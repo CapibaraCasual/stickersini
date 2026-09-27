@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import io.github.capibaracasual.stickersini.R
 import io.github.capibaracasual.stickersini.stickers.data.StickerPackRepository
 import io.github.capibaracasual.stickersini.stickers.domain.ManagedStickerPack
+import io.github.capibaracasual.stickersini.stickers.domain.WhatsAppStatus
 import io.github.capibaracasual.stickersini.ui.theme.Radius
 import io.github.capibaracasual.stickersini.ui.theme.Spacing
 
@@ -128,7 +129,37 @@ private fun PackRow(pack: ManagedStickerPack, onClick: () -> Unit) {
                 }
                 Text(text = countText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+
+            if (pack.missingForMinimum == 0) {
+                WhatsAppStatusBadge(pack.whatsAppStatus)
+            }
         }
+    }
+}
+
+/**
+ * Recordatorio o confirmación de si este pack se agregó a WhatsApp — solo
+ * lo que la propia app sabe (ver [ManagedStickerPack.whatsAppStatus], no
+ * hay forma de consultarle a WhatsApp si sigue instalado). Es un indicador,
+ * no un botón: tocar cualquier parte de la fila ya lleva a
+ * `PackDetailScreen`, donde vive la acción real.
+ */
+@Composable
+private fun WhatsAppStatusBadge(status: WhatsAppStatus) {
+    when (status) {
+        WhatsAppStatus.NeverConfirmed -> StickerBadge(
+            text = stringResource(R.string.packs_whatsapp_add_badge),
+            containerColor = MaterialTheme.colorScheme.primary,
+            outlined = true,
+        )
+        WhatsAppStatus.OutOfDate -> StickerBadge(
+            text = stringResource(R.string.packs_whatsapp_update_badge),
+            containerColor = MaterialTheme.colorScheme.primary,
+        )
+        WhatsAppStatus.UpToDate -> StickerBadge(
+            text = stringResource(R.string.packs_whatsapp_up_to_date_badge),
+            containerColor = MaterialTheme.colorScheme.secondary,
+        )
     }
 }
 

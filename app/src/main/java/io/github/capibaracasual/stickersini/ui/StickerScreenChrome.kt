@@ -2,6 +2,7 @@ package io.github.capibaracasual.stickersini.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -149,7 +150,10 @@ fun StickerDieCutFrame(
 
 /**
  * Insignia en Fredoka sobre una píldora de color, como la de "Animado" en
- * la vista previa de guardado o "Semilla" en la lista de packs.
+ * la vista previa de guardado o "Semilla" en la lista de packs. Con
+ * [outlined] en `true` es un borde sin relleno del mismo color en vez de una
+ * píldora sólida — para un recordatorio ("todavía falta hacer esto") que no
+ * debe leerse con el mismo peso que un estado ya cumplido.
  */
 @Composable
 fun StickerBadge(
@@ -157,13 +161,18 @@ fun StickerBadge(
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.secondary,
     contentColor: Color = MaterialTheme.colorScheme.onSecondary,
+    outlined: Boolean = false,
 ) {
+    val shape = RoundedCornerShape(Radius.chip)
+    val background = if (outlined) Color.Transparent else containerColor
+    val foreground = if (outlined) containerColor else contentColor
     Box(
         modifier = modifier
-            .background(containerColor, RoundedCornerShape(Radius.chip))
+            .background(background, shape)
+            .then(if (outlined) Modifier.border(1.5.dp, containerColor, shape) else Modifier)
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text(text = text, style = MaterialTheme.typography.titleSmall, color = contentColor)
+        Text(text = text, style = MaterialTheme.typography.titleSmall, color = foreground)
     }
 }
 
