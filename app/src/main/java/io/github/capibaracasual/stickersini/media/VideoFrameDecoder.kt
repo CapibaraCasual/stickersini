@@ -11,6 +11,12 @@ import android.media.MediaFormat
 import android.net.Uri
 import io.github.capibaracasual.stickersini.webp.FrameTiming
 import io.github.capibaracasual.stickersini.webp.WebpFrame
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.Semaphore
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.ceil
 
 private const val DEQUEUE_TIMEOUT_US = 10_000L
@@ -18,6 +24,18 @@ private const val IMAGE_AVAILABLE_TIMEOUT_MS = 200L
 
 /** RF-10/RF-11: los fotogramas que produce esta fase ya salen al tamaño exacto de un sticker. */
 private const val STICKER_SIZE = 512
+
+/**
+ * ADR-0015: cuántos fotogramas decodificados-pero-sin-convertir puede
+ * retener el `ImageReader` a la vez. El bucle de decode se frena
+ * (`inFlight.acquire()`) si la conversión no da abasto: no puede haber más
+ * conversiones pendientes que buffers libres. Valor medido, no elegido a
+ * ojo — ver `docs/desarrollo/pruebas.md`.
+ */
+private const val IMAGE_READER_CAPACITY = 5
+
+/** ADR-0015: tamaño del pool que convierte fotogramas en paralelo al decode del siguiente. Valor medido. */
+private const val CONVERTER_THREADS = 3
 
 /**
  * Fase 2 (RF-02, ADR-0008): decodifica un video existente en una lista de
@@ -37,6 +55,17 @@ private const val STICKER_SIZE = 512
  * (ADR-0008). [VideoImportResult.truncated] expone si el tramo procesado
  * quedó más corto que lo pedido, para que la capa que llame pueda
  * informarlo cuando exista una pantalla para hacerlo.
+ *
+ * **La conversión de cada fotograma corre en paralelo al decode del
+ * siguiente (ADR-0015), no en el mismo hilo que lo espera.** El fotograma
+ * decodificado se manda a un pool de [CONVERTER_THREADS] hilos apenas
+ * `ImageReader` lo entrega, y el bucle sigue alimentando/vaciando
+ * `MediaCodec` sin esperar a que esa conversión termine — un semáforo
+ * ([IMAGE_READER_CAPACITY] `- 1` permisos) frena el bucle si la conversión
+ * se atrasa, para no pedirle a `ImageReader` más buffers de los que puede
+ * retener. Medido 1.75×-2.75× más rápido que esperar cada conversión antes
+ * de seguir decodificando, con el mismo resultado (mismos bitmaps, mismo
+ * orden): ver `docs/desarrollo/pruebas.md`.
  */
 class VideoFrameDecoder(
     private val targetFps: Int = VIDEO_PREFILTER_TARGET_FPS,
@@ -126,29 +155,27 @@ class VideoFrameDecoder(
             extractor.seekTo(clip.startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
         }
 
-        val imageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, /* maxImages = */ 2)
+        val imageReader = ImageReader.newInstance(width, height, ImageFormat.YUV_420_888, IMAGE_READER_CAPACITY)
         val codec = MediaCodec.createDecoderByType(mime)
+        val converters: ExecutorService = Executors.newFixedThreadPool(CONVERTER_THREADS)
+        // Como mucho (IMAGE_READER_CAPACITY - 1) fotogramas
+        // decodificados esperando conversión: si se piden más de los que
+        // el ImageReader puede retener, acquireNextImage empieza a
+        // devolver null.
+        val inFlight = Semaphore(IMAGE_READER_CAPACITY - 1)
         try {
             codec.configure(format, imageReader.surface, null, 0)
             codec.start()
 
             val sampler = FrameSampler(targetFps)
-            val keptBitmaps = mutableListOf<Bitmap>()
+            val conversions = mutableListOf<Future<Bitmap>>()
             val keptPtsUs = mutableListOf<Long>()
             var decodedFrameCount = 0
+            val framesConverted = AtomicInteger(0)
 
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
-            // Desglose de dónde se va el tiempo del decode (para decidir si
-            // vale la pena mover la conversión YUV→RGB a la capa nativa):
-            // cuánto de acquireImageWithRetry (esperar el buffer decodificado)
-            // y cuánto de YuvFrameConverter (la conversión en sí). El resto
-            // del tiempo de este bucle (extraer muestras, encolar/desencolar
-            // en MediaCodec) es decodeMs menos estas dos sumas, no hace falta
-            // medirlo aparte.
-            var acquireImageMs = 0L
-            var conversionMs = 0L
 
             while (!outputDone) {
                 if (!inputDone) {
@@ -185,18 +212,21 @@ class VideoFrameDecoder(
                     codec.releaseOutputBuffer(outputIndex, keep)
                     if (keep) {
                         decodedFrameCount++
-                        val acquireStart = System.nanoTime()
-                        val image = acquireImageWithRetry(imageReader)
-                        acquireImageMs += (System.nanoTime() - acquireStart) / 1_000_000L
-                        try {
-                            val convertStart = System.nanoTime()
-                            keptBitmaps += YuvFrameConverter.toSquareBitmap(image, rotationDegrees, targetSize, normalizedCrop)
-                            conversionMs += (System.nanoTime() - convertStart) / 1_000_000L
-                            keptPtsUs += presentationTimeUs
-                        } finally {
-                            image.close()
-                        }
-                        onFrameDecoded(keptBitmaps.size, estimatedTotalFrames)
+                        inFlight.acquire()
+                        val image = acquireImageWithRetry(imageReader, inFlight)
+                        keptPtsUs += presentationTimeUs
+                        conversions += converters.submit(
+                            Callable {
+                                try {
+                                    val bitmap = YuvFrameConverter.toSquareBitmap(image, rotationDegrees, targetSize, normalizedCrop)
+                                    onFrameDecoded(framesConverted.incrementAndGet(), estimatedTotalFrames)
+                                    bitmap
+                                } finally {
+                                    image.close()
+                                    inFlight.release()
+                                }
+                            },
+                        )
                     }
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         outputDone = true
@@ -204,15 +234,20 @@ class VideoFrameDecoder(
                 }
             }
 
+            // .get() conserva el orden de sumisión (uno por Future), aunque
+            // las conversiones terminen en otro orden entre sí: el orden de
+            // los fotogramas en el resultado no depende del orden en que el
+            // pool los va terminando.
+            val keptBitmaps = conversions.map { it.get() }
+
             return VideoImportResult(
                 frames = buildWebpFrames(keptBitmaps, keptPtsUs, clip.endUs),
                 decodedFrameCount = decodedFrameCount,
                 sourceDurationMs = sourceDurationUs / 1_000,
                 truncated = clip.truncated,
-                acquireImageMs = acquireImageMs,
-                conversionMs = conversionMs,
             )
         } finally {
+            converters.shutdown()
             runCatching { codec.stop() }
             codec.release()
             imageReader.close()
@@ -241,14 +276,17 @@ class VideoFrameDecoder(
      * `releaseOutputBuffer(index, render = true)` programa el renderizado a
      * la superficie del `ImageReader`, pero no garantiza que la imagen esté
      * disponible de inmediato. Sondea con una espera corta en vez de asumir
-     * que ya está ahí.
+     * que ya está ahí. Si se agota el plazo, libera el permiso de
+     * [inFlight] antes de fallar para no dejar el semáforo inconsistente
+     * (ADR-0015).
      */
-    private fun acquireImageWithRetry(reader: ImageReader): Image {
+    private fun acquireImageWithRetry(reader: ImageReader, inFlight: Semaphore): Image {
         val deadlineNanos = System.nanoTime() + IMAGE_AVAILABLE_TIMEOUT_MS * 1_000_000L
         while (true) {
             val image = reader.acquireNextImage()
             if (image != null) return image
             if (System.nanoTime() >= deadlineNanos) {
+                inFlight.release()
                 throw VideoDecodeException("ImageReader no entregó el fotograma decodificado a tiempo")
             }
             Thread.sleep(1)
@@ -263,8 +301,4 @@ data class VideoImportResult(
     val sourceDurationMs: Long,
     /** RF-06: `true` si el tramo procesado quedó más corto que lo pedido (tope de 10 s, o el video no llegaba). */
     val truncated: Boolean,
-    /** Cuánto de [decode] se fue esperando `ImageReader.acquireNextImage()`, sumado sobre todos los fotogramas conservados. */
-    val acquireImageMs: Long,
-    /** Cuánto de [decode] se fue en [YuvFrameConverter], sumado sobre todos los fotogramas conservados. */
-    val conversionMs: Long,
 )

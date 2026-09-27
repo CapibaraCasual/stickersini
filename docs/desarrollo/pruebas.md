@@ -1659,3 +1659,396 @@ generaron tres stickers de la misma escena (clip de 10 s) con
 `ComparisonStickerGeneratorTest`: actual (512@8fps) y las dos candidatas
 (384@8fps, 320@8fps), dejados en el teléfono
 (`/sdcard/Download/stickersini_comparacion/`) para mirar antes de decidir.
+
+## Fase 3 — decode más barato: ImageReader reducido y decode+conversión en paralelo (2026-09-26)
+
+El barrido anterior (arriba) reducía la resolución de *codificación*, no la
+de *decode*: `YuvFrameConverter` siempre convierte el cuadrado nativo
+completo (720×720 para este video) y recién después `Bitmap.createScaledBitmap`
+lo achica — el costo real de decodificar+convertir no cambiaba, solo un
+paso downstream barato. Esta medición ataca las dos vías que sí tocan ese
+costo, pedidas explícitamente: (1) que `MediaCodec`/`ImageReader` entreguen
+menos píxeles desde el decode mismo, y (2) solapar la conversión YUV→RGB
+con el decode del siguiente fotograma. Mismo dispositivo y video real de
+siempre (Xiaomi Redmi Note 14 `24117RN76L`, Android 14,
+`Recording_20260919_191641.mp4`), `adb shell svc power stayon usb` antes de
+cada corrida larga (ver nota de Doze más arriba). Código de medición, en
+este momento de la investigación: `ReducedResolutionDecodeFeasibilityTest`,
+`ParallelVideoFrameDecoder`, `ParallelDecodeConversionProbeTest`,
+`ParallelPipelineFpsRemeasureTest` (los cuatro en `app/src/androidTest`),
+ninguno toca `VideoFrameDecoder` ni ningún valor de producción todavía —
+ADR-0015, más abajo en esta misma sección, adopta la Vía 2 a producción
+y retira `ParallelPipelineFpsRemeasureTest` (superado, ver esa nota).
+
+### Vía 1: `ImageReader` más chico que el nativo — descartada, el dispositivo la ignora
+
+`ImageReader.newInstance(w, h, YUV_420_888, 2)` con `w`/`h` menores al
+nativo (720×1600), `MediaCodec` configurado igual (el `MediaFormat` de
+origen no cambia — es el tamaño del stream, no del buffer de salida pedido)
+y `setVideoScalingMode(VIDEO_SCALING_MODE_SCALE_TO_FIT)` explícito. 5
+corridas por tamaño, clip de 3 s:
+
+| Pedido | Real entregado | Mediana | Rango | ¿Lo respeta? |
+|---|---|---|---|---|
+| 720×1600 (nativo, control) | 720×1600 | 1334 ms | 1112–1502 | — |
+| 360×800 (mitad) | 720×1600 | 1525 ms | 1507–1579 | **no** |
+| 180×400 (cuarto) | 720×1600 | 1369 ms | 1252–1596 | **no** |
+
+Sin excepciones, sin colgarse — el decoder simplemente entrega el tamaño
+nativo sin importar el tamaño del `ImageReader`, y el tiempo no baja (si
+acaso, ruido dentro del mismo rango). **Este dispositivo no soporta decode
+a resolución reducida vía `ImageReader`/`VIDEO_SCALING_MODE_SCALE_TO_FIT`:
+vía descartada, no por costo sino por falta de soporte real.** No hay
+mecanismo público de `MediaCodec` para forzar esto cuando el hardware no lo
+ofrece por su cuenta (confirmado también contra documentación de la API,
+no solo contra este dispositivo). Traza completa:
+`reduced_resolution_decode_trace.txt`.
+
+### Vía 2: decode+conversión en paralelo — funciona, 1.75×–2.75× más rápido
+
+`ParallelVideoFrameDecoder` mueve la conversión de cada fotograma
+(`YuvFrameConverter`/`:yuv`, ADR-0011) a un `ExecutorService`, con un
+semáforo (`imageReaderCapacity - 1`) que frena el bucle de decode si la
+conversión no da abasto — el mismo `ImageReader`/`MediaCodec` que
+`VideoFrameDecoder`, solo que la conversión ya no bloquea seguir
+decodificando. Comparado contra el secuencial (`VideoFrameDecoder`), solo
+decode+conversión (sin `WebpAnimEncoder`), 5 corridas por celda:
+
+| fps | Clip | Secuencial (mediana) | Paralelo hilos=3/cap=5 (mediana) | Mejora |
+|---|---|---|---|---|
+| 8 | 3 s | 1920 ms | 1095 ms | 1.75× |
+| 8 | 10 s | 3429 ms | 1959 ms | 1.75× |
+| 12 | 10 s | 4760 ms | 1947 ms | 2.44× |
+| 15 | 10 s | 5630 ms | 2049 ms | **2.75×** |
+
+(tabla resumida; las 9 celdas × 3 configuraciones completas, con hilos=2 y
+hilos=3, están en `parallel_decode_probe_trace.txt`. hilos=3/capacidad=5
+ganó o empató en el tramo de 10 s en todos los fps, así que es la
+configuración usada en la remedición de la tubería completa.)
+
+**Esta vía funciona de verdad, sin ambigüedad.** Pero no es la que decide
+si sube el fps de prefiltro — ver la remedición de la tubería completa
+abajo.
+
+### Remedición de la tubería completa (decode paralelo + `WebpAnimEncoder`) a 8 (control)/12/15 fps
+
+Con el decode más barato, se repitió el método de ADR-0012 (5 corridas,
+mediana y rango, peor caso decide) para el valor actual (8, como control) y
+los dos pedidos (12, 15), en las tres duraciones de RNF-08. **Se corrió dos
+veces de forma independiente** (dos invocaciones separadas de
+`am instrument`, no la misma corrida repetida) porque la primera pasada
+mostró algo raro en el control — ver el hallazgo colateral más abajo.
+
+**Corrida 1:**
+
+| fps | Clip | Mediana | Rango | Presupuesto | ¿Cumple peor caso? |
+|---|---|---|---|---|---|
+| 8 (control) | 3 s | 2355 ms | 2104–4027 | 5000 | sí |
+| 8 (control) | 5 s | 3179 ms | 3101–3524 | 5000 | sí |
+| 8 (control) | 10 s | 18754 ms | 15343–**23239** | 20000 | **no** |
+| 12 | 3 s | 2800 ms | 2473–**5364** | 5000 | **no** |
+| 12 | 5 s | 4185 ms | 3951–4563 | 5000 | sí (8.7% margen) |
+| 12 | 10 s | 21909 ms | 17837–**24384** | 20000 | **no** (4 de 5 corridas: `WebpEncodeException`, RF-12) |
+| 15 | 3 s | 2907 ms | 2772–4875 | 5000 | sí |
+| 15 | 5 s | 5380 ms | 4736–**9190** | 5000 | **no** |
+| 15 | 10 s | 17488 ms | 16655–21408 | 20000 | **no** (5 de 5 corridas: `WebpEncodeException`, RF-12) |
+
+**Corrida 2 (reproducibilidad):**
+
+| fps | Clip | Mediana | Rango | Presupuesto | ¿Cumple peor caso? |
+|---|---|---|---|---|---|
+| 8 (control) | 3 s | 2191 ms | 2070–2982 | 5000 | sí |
+| 8 (control) | 5 s | 3332 ms | 3211–3422 | 5000 | sí |
+| 8 (control) | 10 s | 17552 ms | 13637–**24303** | 20000 | **no** |
+| 12 | 3 s | 2863 ms | 2430–**5834** | 5000 | **no** |
+| 12 | 5 s | 4159 ms | 4058–4465 | 5000 | sí |
+| 12 | 10 s | 20824 ms | 19584–**26766** | 20000 | **no** |
+| 15 | 3 s | 4450 ms | 3148–**5912** | 5000 | **no** |
+| 15 | 5 s | 4928 ms | 4717–**5198** | 5000 | **no** |
+| 15 | 10 s | 21593 ms | 17071–**32464** | 20000 | **no** |
+
+Trazas completas: `parallel_pipeline_remeasure_trace.txt` (corrida 1) y
+`parallel_pipeline_remeasure_trace_run2.txt` (corrida 2).
+
+### Por qué el decode más barato no alcanza: el cuello de botella es `WebpAnimEncoder`, no el decode
+
+En el tramo de 10 s, decode+conversión con la vía paralela baja a ~2000-3600 ms
+en las dos corridas — pero el total sigue fallando, porque
+`encodeMs` solo (la codificación WebP, sin tocar) sigue en 13 600–22 200 ms,
+más del doble del decode. A 12 y 15 fps, con más fotogramas para meter bajo
+el límite de 500 KB (RF-10), la búsqueda de calidad de ADR-0006/0007
+frecuentemente no encuentra ningún resultado válido dentro del presupuesto
+de 20 s — no es "tarda de más", es directamente `WebpEncodeException`
+(RF-12, "no hay sticker"), en 4-5 de cada 5 corridas para el clip de 10 s a
+12 y 15 fps. Acelerar el decode no ataca esto: el decode nunca fue la
+mayoría del presupuesto en el caso que importa (clips largos, fps alto).
+
+### Hallazgo colateral, no buscado: el margen de 8 fps/10 s (ADR-0012) no se sostiene con más muestras
+
+El control (8 fps, el valor vigente de ADR-0012, sin ningún cambio de
+decode ni de encoder) **falló el tramo de 10 s en las dos corridas
+independientes** (peor caso 23239 ms y 24303 ms contra el tope de 20000),
+con un rango mucho más ancho (13637–24303 ms combinando ambas corridas) que
+el que documentó ADR-0012 (17293–17589 ms, 12.1% de margen, un solo lote de
+5 corridas). Se descartó recalentamiento como causa: `dumpsys
+thermalservice` reportó `Thermal Status: 0` (sin throttling) en ambas
+verificaciones, con la CPU a su frecuencia máxima (2.0 GHz) en el momento
+de revisar; tampoco estaba en ahorro de batería (`low_power=0`) ni
+descargándose (`status: 2`, cargando por USB, 91%). **La causa de esta
+variación queda sin identificar** — no es parte de lo que pedía esta
+investigación (que era subir el fps, no revalidar 8), así que no se
+persigue acá, pero significa que el 12.1% de margen que cita ADR-0012 para
+el tramo de 10 s no debe tomarse como garantizado con una muestra más
+grande: hace falta una medición aparte, dedicada a esto, antes de confiar
+en ese número puntual.
+
+### Corrección del hallazgo colateral, mismo día: era un artefacto de esta medición, no un incumplimiento real de RNF-08
+
+Investigado a fondo (pedido explícito: "un requisito que no se cumple no
+se deja documentado como cumplido"). **RNF-08 no está roto. El control
+estaba contaminado — la causa era el arnés de medición, no la app.**
+
+Dos aislaciones, cada una con 5 corridas **separadas** (5 invocaciones
+distintas de `am instrument`, no un bucle dentro de un mismo proceso —
+así es como se midió originalmente ADR-0012, y esta vez no se replicó esa
+disciplina):
+
+1. **`VideoImportPerformanceTest` sin tocar** (el `VideoFrameDecoder`
+   secuencial de producción, tal cual está desde ADR-0012), fps=8, clip de
+   10 s, 5 invocaciones separadas:
+
+   | Corrida | decodeMs | encodeMs | totalMs |
+   |---|---|---|---|
+   | 1 | 4229 | 14809 | 19038 |
+   | 2 | 4748 | 13062 | 17810 |
+   | 3 | 4861 | 13159 | 18020 |
+   | 4 | 4042 | 14110 | 18152 |
+   | 5 | 4789 | 13090 | 17879 |
+
+   Rango 17810–19038 ms — tenso pero estable, coherente con el 12.1% de
+   margen de ADR-0012 (algo más alto que el original, pero sin ninguna
+   corrida cerca de romper el tope de 20000 ms).
+
+2. **`ParallelDecoderIsolationTest`** (mismo `ParallelVideoFrameDecoder`
+   hilos=3/capacidad=5 de la Vía 2, pero **una sola corrida por
+   invocación**, no las 135 corridas seguidas en un solo proceso que hizo
+   `ParallelPipelineFpsRemeasureTest`), fps=8, clip de 10 s, 5 invocaciones
+   separadas:
+
+   | Corrida | decodeMs | encodeMs | totalMs |
+   |---|---|---|---|
+   | 1 | 1573 | 13066 | 14639 |
+   | 2 | 2147 | 13080 | 15227 |
+   | 3 | 1960 | 13068 | 15028 |
+   | 4 | 2156 | 13477 | 15633 |
+   | 5 | 2057 | 13129 | 15186 |
+
+   Rango 14639–15633 ms — **más rápido todavía que el secuencial** (el
+   decode paralelo cumple lo que prometía) y con la misma estabilidad que
+   el control: `encodeMs` prácticamente idéntico corrida a corrida
+   (13066–13477), nada que ver con el 13600–21363 ms de dispersión que
+   mostró la remedición de la tubería completa.
+
+**Conclusión de la causa: la dispersión (13.6–24.3 s) es un artefacto de
+correr ~135 corridas de decode+codificación seguidas dentro de un mismo
+proceso/invocación de `am instrument`** (`ParallelPipelineFpsRemeasureTest`
+barre 9 celdas × 5 corridas sin pausa, ambas veces). Ni el número de
+intentos del codificador (siempre 2 en el caso de 8 fps/10 s, en las dos
+corridas contaminadas) ni el contenido (mismo tramo exacto en cada
+corrida, `startMs=0`, mismo archivo) explican la dispersión — descartados
+ambos con los propios datos de la tabla original. Tampoco es `SquareCrop`:
+el refactor de RF-07 (`9b8ef37`) solo renombró `CenterSquareCrop` y agregó
+una rama nueva para recorte no-centrado; el camino centrado (el que usan
+todas estas mediciones) es la misma aritmética entera de antes, sin
+cambio de costo. El sospechoso más probable es acumulación de recursos de
+`ParallelVideoFrameDecoder` entre corridas repetidas dentro del mismo
+proceso (hilos del `ExecutorService` que no terminan de inmediato al
+llamar `shutdown()`, sin esperar `awaitTermination`) — no confirmado al
+nivel de mecanismo exacto, pero confirmado que el problema desaparece por
+completo al no repetir corridas dentro de un mismo proceso, con o sin el
+decoder paralelo de por medio.
+
+**No corresponde ningún ADR que corrija ADR-0012: el valor (8 fps) sigue
+cumpliendo RNF-08**, medido tanto con el decoder de producción como con el
+prototipo paralelo, siempre que la medición no repita decenas de corridas
+en el mismo proceso sin pausa. Queda como lección de método, no como
+hallazgo de producto: **`ParallelPipelineFpsRemeasureTest` (y cualquier
+test futuro que barra muchas celdas en un solo `am instrument`) no es
+confiable para números absolutos cerca de un presupuesto — sirve para
+comparar configuraciones entre sí dentro de la misma corrida contaminada
+(por eso la Vía 2 de arriba, que compara secuencial contra paralelo
+*dentro* de la misma corrida larga, sigue siendo válida: el sesgo afecta a
+ambos lados por igual), pero no para decidir si un valor absoluto cumple
+un presupuesto de RNF-08.** Eso hace falta medirlo con invocaciones
+separadas, como este apartado y como ADR-0012 original.
+
+`ParallelPipelineFpsRemeasureTest` se eliminó del repositorio después de
+esta investigación (ADR-0015): su hallazgo de producto ya quedó
+completo acá arriba, y conservar una herramienta que mide mal por diseño
+—sin borrar el riesgo de que alguien la corra de nuevo sin leer esta
+advertencia— pesaba más que su valor. Para volver a comparar
+configuraciones de hilos/capacidad, usar `ParallelDecodeConversionProbeTest`
+(decode+conversión aislado, sin este problema) o `ParallelDecoderIsolationTest`
+(una sola corrida por invocación, el patrón correcto para un número
+absoluto).
+
+### Conclusión: ninguna de las dos vías abre margen para subir el fps de prefiltro — ADR-0012 queda sin cambios
+
+**No corresponde un ADR nuevo que reemplace ADR-0012.** La vía 1 (decode a
+menor resolución) no está disponible en este dispositivo — no es un costo
+que optimizar, es una función que el hardware no expone. La vía 2 (decode
+paralelo a la conversión) funciona y de verdad baja el costo de decode
+1.75×-2.75×, pero decode nunca fue el cuello de botella en el caso que
+importa (clips largos con fps alto): ahí manda `WebpAnimEncoder`, sin
+tocar por esta investigación, y ese costo no baja con ninguna de las dos
+vías medidas. A 12 y 15 fps el resultado es peor que "más lento": la
+mayoría de las corridas del clip de 10 s no producen ningún sticker válido
+dentro del presupuesto (RF-12).
+
+**Qué queda por explorar**, en orden de lo que más probablemente importe:
+
+1. **El costo de `WebpAnimEncoder` en sí, no el de decode.** Subir el fps
+   con éxito necesitaría bajar el costo de la búsqueda de calidad
+   (ADR-0006/0007) — por ejemplo, menos intentos de bisección, una
+   estimación inicial de calidad mejor que reduzca cuántos intentos hacen
+   falta, o paralelizar la exploración de candidatos de calidad — nada de
+   esto está medido todavía.
+2. ~~La causa del hallazgo colateral~~ — **resuelto el mismo día**: era un
+   artefacto de medir 135 corridas seguidas en un mismo proceso, no un
+   incumplimiento real de RNF-08 (ver "Corrección del hallazgo colateral"
+   arriba). Sigue pendiente, de todos modos, el mecanismo exacto (se
+   sospecha de hilos de `ExecutorService` sin `awaitTermination`, no
+   confirmado) y si el pipeline secuencial de producción también se
+   degrada con muchas conversiones seguidas en la misma sesión de la app
+   (un usuario que arma varios stickers sin cerrarla) — no medido, ni
+   antes ni ahora.
+3. `ParallelVideoFrameDecoder` queda en el repo como herramienta de
+   medición, no como código de producción: si en el futuro se ataca el
+   costo del encoder y el decode vuelve a importar, ya está la
+   implementación y la comparación de configuraciones (hilos, capacidad
+   del `ImageReader`) hecha.
+
+## Fase 3 — ¿paraleliza `WebPAnimEncoder` la codificación de fotogramas? (2026-09-26)
+
+Pedido directo, siguiendo el punto anterior: si paralelizar decode dio
+1.75×-2.75×, ¿paralelizar la codificación (el cuello real, confirmado
+arriba) da algo parecido? Investigado antes de medir qué permite la API en
+sí, no solo qué parámetro tocar a ciegas.
+
+### Qué permite realmente `WebPAnimEncoder`: nada entre fotogramas
+
+`WebPAnimEncoderAdd` es una API de streaming, no un lote: cada llamada
+necesita el fotograma anterior para decidir si el actual sale como cuadro
+clave o como diferencia (y qué rectángulo cambió) — por diseño, solo puede
+llamarse un fotograma a la vez, en orden. No hay ninguna función pública
+de `libwebp`/`libwebpmux` para pasarle fotogramas fuera de orden o desde
+varios hilos a la vez. Revisado el código vendorizado
+(`src/mux/anim_encode.c`, no tocado por este proyecto) para confirmarlo,
+no solo la documentación del header.
+
+Lo único que `WebPConfig` sí permite paralelizar es *dentro* de un
+fotograma: `config.thread_level`. Revisado dónde se usa de verdad en el
+camino que toma producción (`lossless=0`, `method=0`, fotogramas opacos —
+sin canal alfa, `libwebp` lo detecta solo y ni lo codifica):
+
+- `alpha_enc.c`: **no aplica** — no hay canal alfa que codificar en
+  contenido opaco.
+- `vp8l_enc.c`: **no aplica** — es la rama sin pérdida (`lossless`), la de
+  producción no la usa.
+- `analysis_enc.c` (`VP8EncAnalyze`): la única que sí aplica a
+  `method=0` — parte la fase de análisis/segmentación en dos mitades entre
+  el hilo principal y uno nuevo.
+
+Es decir: el único paralelismo real que ofrece la API pública, para
+exactamente la configuración de producción, es partir en dos una fase
+interna de análisis — no la codificación en sí. Se midió igual, sin
+asumir que ese alcance limitado lo descarta de entrada.
+
+### Medición: `thread_level=1` no ayuda, y sale un poco más lento
+
+`WebpThreadLevelBenchmarkTest` (`:webp/src/androidTest`), mismo patrón que
+`WebpEncodeMethodBenchmarkTest` (contenido sintético "adverso" y
+"realista", `minimizeSize=false` para aislar el costo de una sola
+codificación), `method=0` fijo (producción), `quality=75`, 5 corridas por
+celda, dos cantidades de fotogramas (24 ≈ 3 s/8 fps, 80 ≈ 10 s/8 fps, el
+máximo de RF-06):
+
+| Fotogramas | Contenido | threadLevel=0 (mediana) | threadLevel=1 (mediana) | Cambio | `sizeBytes` |
+|---|---|---|---|---|---|
+| 24 | adverso | 3911 ms | 3954 ms | +1.1% | igual |
+| 24 | realista | 863 ms | 973 ms | **+12.7%** | igual |
+| 80 | adverso | 13058 ms | 13225 ms | +1.3% | igual |
+| 80 | realista | 2625 ms | 2902 ms | **+10.6%** | igual |
+
+`sizeBytes` idéntico entre threadLevel 0 y 1 en las cuatro celdas —
+confirma que solo cambia cómputo interno, no ninguna decisión de
+compresión. **`thread_level=1` nunca ganó: siempre empató o perdió**, peor
+en el contenido más barato de codificar ("realista", donde el costo fijo
+de crear/sincronizar el hilo pesa más sobre un total más chico). No
+corresponde adoptarlo — pura pérdida de tiempo, sin ninguna ganancia de
+tamaño que la compense.
+
+### Conclusión: no hay vía de paralelismo de fotogramas "gratis" en `WebPAnimEncoder`
+
+A diferencia del decode (donde superponer conversión y decode del
+siguiente fotograma funcionó de verdad), **no existe un botón equivalente
+para la codificación**: la única API pública para animaciones es
+secuencial por diseño, y el único parámetro de hilos que expone no aplica
+al costo real (la compresión en sí) para la configuración de producción,
+y en la práctica sale un poco más lento, no más rápido.
+
+**Qué queda por explorar, si se quiere perseguir esto en serio:** la única
+vía real de paralelismo por fotograma sería dejar de usar
+`WebPAnimEncoderAdd` — comprimir cada fotograma por separado con
+`WebPEncode` (sin animación, en cualquier orden, en paralelo de verdad) y
+rearmar el contenedor animado a mano con la API de más bajo nivel de
+`libwebpmux` (`WebPMuxPushFrame` y afines), reimplementando nosotros mismos
+la decisión de cuadro-clave-vs-diferencia que `WebPAnimEncoderAdd` da
+gratis hoy. Esto es un cambio de arquitectura, no un parámetro: implica
+perder (o reimplementar) esa optimización de tamaño, con riesgo real de
+inflar el resultado por encima del límite de 500 KB de RF-10 si la
+reimplementación no es al menos tan buena — nada de esto está medido, y no
+corresponde implementarlo a ciegas solo porque el camino fácil
+(`thread_level`) no dio resultado. Antes de tocar código de producción
+haría falta medir, en un prototipo aparte: (a) cuánto tamaño gana hoy el
+diffing automático de `WebPAnimEncoderAdd` frente a codificar cada
+fotograma como cuadro clave independiente (el peor caso si no se
+reimplementa el diffing), y (b) si migrar a `WebPEncode`+`WebPMux` manual
+de verdad compila y funciona en el `:webp` vendorizado de este proyecto
+(`WEBP_BUILD_LIBWEBPMUX` ya está `ON`, pero solo se usó hasta ahora vía
+`WebPAnimEncoder*`, nunca la API de `WebPMuxPushFrame` directamente).
+
+## Fase 3 — decode paralelo adoptado a producción, validado (ADR-0015, 2026-09-26)
+
+Con las dos vías de arriba investigadas (Vía 1 descartada, Vía 2
+funcionando), se adoptó la Vía 2 a producción: `VideoFrameDecoder` ya
+decodifica y convierte en paralelo (`CONVERTER_THREADS=3`,
+`IMAGE_READER_CAPACITY=5`, ver ADR-0015). Validación de la tubería
+completa a los 8 fps de producción, método de 5 corridas de ADR-0012,
+**invocaciones separadas de `am instrument`** (disciplina de método
+explícita: la corrida contaminada que produjo el falso positivo de más
+arriba no la siguió).
+
+| Clip | Total: mediana [rango] | Presupuesto | Margen peor caso | Margen peor caso, ADR-0012 |
+|---|---|---|---|---|
+| 3 s | 2317 ms [2282–2355] | 5000 ms | 52.9% | 41.1% |
+| 5 s | 3429 ms [3257–3471] | 5000 ms | 30.6% | 12.0% |
+| 10 s (máx.) | 15251 ms [15210–15319] | 20000 ms | 23.4% | 12.1% |
+
+Trazas: `video_import_trace_3s.txt`, `video_import_trace_5s.txt`,
+`video_import_trace.txt` (10 s), cada una de la última de 5 invocaciones
+separadas de `VideoImportPerformanceTest` (mismo archivo se sobrescribe
+por corrida — el detalle de las 5 se registró aparte al correrlas, no
+queda en el archivo final).
+
+**Las tres duraciones cumplen RNF-08 con margen ampliado en los tres
+tramos** respecto a ADR-0012 — el tramo de 5 s (12.0%→30.6%) y el de 10 s
+(12.1%→23.4%), los más ajustados antes, son los que más ganan. El fps de
+prefiltro sigue en 8: esta adopción no lo cambia, solo abarata el decode
+al mismo fps.
+
+Con esto se cierra el tema de rendimiento de esta tanda: fps de prefiltro
+en 8 (techo real, no elección conservadora — ADR-0012 más la investigación
+del encoder de esta sección), decode en paralelo adoptado (ADR-0015),
+falso positivo del RNF-08 corregido y explicado. Vuelve la atención a la
+interfaz.

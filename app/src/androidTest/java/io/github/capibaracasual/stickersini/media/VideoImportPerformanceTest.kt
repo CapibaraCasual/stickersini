@@ -117,12 +117,14 @@ class VideoImportPerformanceTest {
             val importResult = VideoFrameDecoder().decode(context, Uri.fromFile(videoFile), durationMs = durationMs)
             val decodeMs = (System.nanoTime() - decodeStart) / 1_000_000
 
-            val restoMs = decodeMs - importResult.acquireImageMs - importResult.conversionMs
+            // Desde ADR-0015 la conversión corre en paralelo al decode del
+            // siguiente fotograma (VideoFrameDecoder), así que ya no hay un
+            // desglose acquireImageMs/conversionMs que aislar: se solapan a
+            // propósito. Lo que importa es este total.
             trace.line(
                 "decode: elapsedMs=$decodeMs sourceDurationMs=${importResult.sourceDurationMs} " +
                     "truncated=${importResult.truncated} decodedFrameCount=${importResult.decodedFrameCount} " +
-                    "framesParaEncoder=${importResult.frames.size} " +
-                    "acquireImageMs=${importResult.acquireImageMs} conversionMs=${importResult.conversionMs} restoMs=$restoMs",
+                    "framesParaEncoder=${importResult.frames.size}",
             )
 
             val measuring = MeasuringEncoder(ProductionWebpEncoder, trace)
