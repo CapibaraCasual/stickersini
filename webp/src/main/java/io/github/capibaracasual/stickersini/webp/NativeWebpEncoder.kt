@@ -16,18 +16,31 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
      * que compense su costo, ni en contenido adverso ni en representativo.
      */
     override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray =
-        encode(frames, quality, minimizeSize, method = 0)
+        encode(frames, quality, minimizeSize, method = 0, threadLevel = 0)
 
     /**
      * Con `method` configurable (0=rápido .. 6=más lento y mejor). Solo para
      * medir su costo real (ver WebpEncodeMethodBenchmarkTest,
      * WebpMinimizeSizeCostTest); producción siempre pasa por el [encode] de
-     * 3 argumentos, que fija method=0 (ADR-0006).
+     * 3 argumentos, que fija method=0 (ADR-0006) y threadLevel=0.
      */
-    fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean, method: Int): ByteArray {
+    fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean, method: Int): ByteArray =
+        encode(frames, quality, minimizeSize, method, threadLevel = 0)
+
+    /**
+     * Con `threadLevel` configurable además de `method` (0=un solo hilo,
+     * 1=pedirle a libwebp que use más de uno donde pueda). Solo para medir
+     * si vale la pena (ver WebpThreadLevelBenchmarkTest): `WebPConfig` no
+     * paraleliza fotogramas entre sí (`WebPAnimEncoderAdd` es
+     * inherentemente secuencial, necesita el fotograma anterior para
+     * decidir diferencia-vs-clave), solo una fase interna de un fotograma
+     * — y solo cuando `method<=1`, el caso de producción (ver
+     * `webp_jni.c`).
+     */
+    fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean, method: Int, threadLevel: Int): ByteArray {
         val bitmaps = Array(frames.size) { frames[it].bitmap }
         val durationsMs = IntArray(frames.size) { frames[it].durationMs }
-        return nativeEncode(bitmaps, durationsMs, quality, minimizeSize, method)
+        return nativeEncode(bitmaps, durationsMs, quality, minimizeSize, method, threadLevel)
     }
 
     @JvmStatic
@@ -37,6 +50,7 @@ internal object NativeWebpEncoder : SingleShotWebpEncoder {
         quality: Int,
         minimizeSize: Boolean,
         method: Int,
+        threadLevel: Int,
     ): ByteArray
 }
 

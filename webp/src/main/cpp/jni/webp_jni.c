@@ -22,7 +22,7 @@ static void throwEncodeException(JNIEnv *env, const char *message) {
 JNIEXPORT jbyteArray JNICALL
 Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
         JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jint quality,
-        jboolean minimizeSize, jint method) {
+        jboolean minimizeSize, jint method, jint threadLevel) {
     (void) clazz;
 
     jsize frameCount = (*env)->GetArrayLength(env, bitmaps);
@@ -140,6 +140,21 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
                         // parámetro sigue existiendo para poder medir otros
                         // valores (ver WebpEncodeMethodBenchmarkTest).
                         config.method = method;
+                        // thread_level=1 solo pide multi-hilo; libwebp
+                        // decide adentro si de verdad lo usa (ver
+                        // analysis_enc.c: para method<=1, que es el caso de
+                        // producción, ADR-0006, divide la fase de análisis
+                        // en dos mitades entre el hilo principal y uno
+                        // nuevo). No existe una vía pública para paralelizar
+                        // fotogramas entre sí: WebPAnimEncoderAdd necesita
+                        // el fotograma anterior para decidir si el actual
+                        // sale como diferencia o como cuadro clave, así que
+                        // solo puede llamarse en orden. Este parámetro
+                        // existe para medir ese único paralelismo real
+                        // dentro de un fotograma (ver
+                        // WebpThreadLevelBenchmarkTest); producción sigue
+                        // pasando 0 hasta que una medición diga lo contrario.
+                        config.thread_level = threadLevel;
                         if (!WebPValidateConfig(&config)) {
                             throwEncodeException(env, "Configuración de codificación inválida");
                             ok = 0;
