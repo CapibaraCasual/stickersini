@@ -16,6 +16,7 @@
     <string name="create_sticker_back">Volver</string>
     <string name="create_sticker_title">Elegí un video o una imagen</string>
     <string name="create_sticker_pick_button">Elegir archivo</string>
+    <string name="create_sticker_pick_reassurance">Nada se sube a ningún lado: elegí y listo.</string>
     <string name="create_sticker_error">No se pudo convertir: %1$s</string>
     <string name="create_sticker_save_button">Guardar como sticker</string>
     <string name="create_sticker_saved">Guardado en el pack \"%1$s\".</string>

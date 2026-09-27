@@ -19,6 +19,11 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
   relieve de sombra sólida ("sticker apretable"), marco "recortado" para
   vistas previas, insignia y avatar de pack por inicial —
   `AddToWhatsAppButton` pasa a usar el mismo botón principal.
+- `CreateStickerPickScreen` (elegir video/imagen, primer paso del flujo)
+  con la dirección visual: cabecera y botón principal nuevos, ilustración
+  de dos stickers superpuestos como guiño a la lámina (sin ícono propio
+  todavía — los seis stickers semilla definitivos siguen en el backlog) y
+  micro-copy de refuerzo ("Nada se sube a ningún lado: elegí y listo.").
 
 ## [0.7.0-alpha] - 2026-09-26
 
