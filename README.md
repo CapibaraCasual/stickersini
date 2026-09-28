@@ -18,7 +18,7 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.8.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.9.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
 **Rendimiento sigue cerrado** (fps de prefiltro en 8, techo real medido —
@@ -43,11 +43,17 @@ gestión de packs además distingue ahora si cada pack ya se agregó a
 WhatsApp, sigue al día, o quedó desactualizado tras agregarle un sticker
 nuevo (RF-20).
 
+**RNF-11 (avisos de licencia) queda cerrado**: pantalla propia, accesible
+desde la portada, con la licencia propia (GPL-3.0 completa) más las
+dependencias reales de `releaseRuntimeClasspath` (114 coordenadas,
+agrupadas por publicador) y libwebp/Fredoka/Karla vendorizados — ver
+ADR-0017 y "Qué funciona ya" más abajo. Con esto quedan las dos tareas que
+bloqueaban la publicación reducidas a una sola.
+
 **Lo que sigue, para retomar mañana** (detalle completo en "Qué falta"):
-los seis stickers semilla definitivos, avisos de licencia (RNF-11 —
-libwebp y ahora también las fuentes Fredoka/Karla), reproducir el video
-en el selector de tramo, rotar en el encuadre, cola de varios archivos
-(RF-25), y la segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
+los seis stickers semilla definitivos, reproducir el video en el selector
+de tramo, rotar en el encuadre, cola de varios archivos (RF-25), y la
+segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
 
 ### Qué funciona ya
 
@@ -194,12 +200,27 @@ en el selector de tramo, rotar en el encuadre, cola de varios archivos
     resultado de siempre, ahora en menos codificaciones. Detalle completo
     (barrido de 48 combinaciones, las dos corridas de confirmación) en
     `docs/desarrollo/pruebas.md`.
+  - **RNF-11: pantalla de avisos de licencia, cerrada (ADR-0017).**
+    Accesible desde un enlace de menor peso visual en la portada. Encabeza
+    con la licencia propia (GPL-3.0 completa, URL del repo en texto
+    plano) y sigue con las dependencias reales de `releaseRuntimeClasspath`
+    —con transitivas, no solo lo declarado a mano; 114 coordenadas,
+    agrupadas por publicador en 10 filas— cada una con su texto legal
+    completo embebido sin red: AndroidX/Compose/Kotlin/kotlinx bajo
+    Apache-2.0 (verificado a mano contra cada proyecto, no asumido),
+    libwebp vendorizado (ADR-0005) bajo BSD-3-Clause más su concesión de
+    patentes, y Fredoka/Karla bajo SIL OFL-1.1. Dos pruebas nuevas evitan
+    que quede desactualizada en silencio:
+    `ThirdPartyLicensesCoverageTest` falla si aparece una dependencia
+    runtime nueva sin clasificar, y `LicenseAssetsSyncTest` falla si la
+    copia embebida de la licencia propia o de libwebp se desincroniza de
+    su fuente real. Validado en dispositivo real.
 
 ### Qué falta
 
-Rendimiento cerrado, diseño visual del recorrido completo cerrado, y el
-bug de RF-12 cerrado con ADR-0016 (ver "Estado" arriba). Pendientes,
-para retomar mañana:
+Rendimiento cerrado, diseño visual del recorrido completo cerrado, el bug
+de RF-12 cerrado con ADR-0016, y RNF-11 (avisos de licencia) cerrado con
+ADR-0017 (ver "Estado" arriba). Pendientes, para retomar mañana:
 
 1. **Los seis stickers semilla definitivos.** Los placeholders actuales
    (3 estáticos, 3 animados) son cuadrados de color plano de prueba, no
@@ -207,22 +228,16 @@ para retomar mañana:
    reemplazarlos antes de publicar. La dirección visual ya elegida
    ("Plancha de stickers") tiene que admitirlos: ver la propuesta de
    ilustración de tres stickers en abanico de `AddSeedPackScreen` como
-   punto de partida de estilo.
-2. **Avisos de licencia (RNF-11).** El código de libwebp viaja
-   vendorizado (ADR-0005), sin que ninguna herramienta automática de
-   licencias lo detecte: hay que añadir su `COPYING` a la pantalla de
-   licencias a mano. Se suma esta tanda: **Fredoka y Karla** (OFL-1.1),
-   vendorizadas en `res/font` por la dirección visual — sus licencias ya
-   están en `app/src/main/assets/licenses/`, falta la pantalla que las
-   muestre (no existe todavía ninguna pantalla de licencias en la app).
-3. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
+   punto de partida de estilo. Con esto cerrado quedaría resuelto lo único
+   que sigue bloqueando la publicación.
+2. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
    viéndolo en vez de solo por segundos.
-4. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
+3. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
    moverlo y ampliarlo.
-5. **Cola de varios archivos** (RF-25, agregado a
+4. **Cola de varios archivos** (RF-25, agregado a
    `docs/desarrollo/requisitos.md`): seleccionar varios y editarlos uno
    tras otro.
-6. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
+5. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
    las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
    Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
    prefiltro en los tres tramos (12.1%→23.4% en el más ajustado, el clip
@@ -280,10 +295,10 @@ Decisión pendiente de mirarlos.
 
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
-  - Issues de los puntos 1 y 2 de arriba (stickers semilla, licencias) y de
-    los temas de rendimiento sin cerrar (WebPMux, resolución de
-    codificación por defecto).
-  - Historias de usuario del trabajo pendiente (puntos 3-5 de arriba),
+  - Issue del punto 1 de arriba (stickers semilla) y de los temas de
+    rendimiento sin cerrar (WebPMux, resolución de codificación por
+    defecto).
+  - Historias de usuario del trabajo pendiente (puntos 2-4 de arriba),
     para rastrearlo fuera de este README.
 
 ## Instalación

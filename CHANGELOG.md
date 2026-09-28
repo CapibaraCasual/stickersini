@@ -7,6 +7,34 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.9.0-alpha] - 2026-09-28
+
+RNF-11: pantalla de avisos de licencia, accesible desde la portada.
+Cierra una de las dos tareas que bloqueaban la publicación (ADR-0017).
+
+### Añadido
+- Pantalla "Licencias", accesible desde un enlace de menor peso visual en
+  la portada. Encabeza con la licencia propia del proyecto (GPL-3.0, texto
+  completo, URL del repositorio en texto plano) y sigue con las
+  dependencias de terceros que de verdad se distribuyen en el APK
+  (`releaseRuntimeClasspath`, con transitivas — 114 coordenadas reales,
+  agrupadas por publicador en 10 filas), cada una con su texto legal
+  completo embebido sin red (RNF-01): AndroidX/Jetpack Compose, Kotlin,
+  kotlinx.coroutines, kotlinx.serialization, JetBrains Java Annotations,
+  JSpecify y Guava (solo `ListenableFuture`) bajo Apache License 2.0;
+  libwebp (vendorizado, ADR-0005) bajo BSD-3-Clause más la concesión de
+  patentes de su `PATENTS`; Fredoka y Karla bajo SIL OFL-1.1.
+- `ThirdPartyLicensesCoverageTest`: falla si `releaseRuntimeClasspath` suma
+  una dependencia nueva que la pantalla de licencias todavía no clasifica,
+  en vez de descubrirlo recién al auditar el APK antes de publicar.
+- `LicenseAssetsSyncTest`: falla si la copia embebida de la licencia propia
+  o de `COPYING`/`PATENTS` de libwebp queda desactualizada respecto de su
+  fuente real en el repo.
+
+Ver ADR-0017 para por qué la lista es manual y no un plugin de licencias.
+Validado en dispositivo real: la pantalla, la navegación a cada detalle y
+la carga de los seis archivos de `assets/licenses/` desde el APK instalado.
+
 ## [0.8.0-alpha] - 2026-09-27
 
 Dirección visual propia ("Plancha de stickers", elegida entre tres
