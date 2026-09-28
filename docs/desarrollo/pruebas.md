@@ -2260,11 +2260,13 @@ reales:
 
 Confirma en contenido real lo que ADR-0006 midió en otro contenido
 (beneficio marginal, ≤0.1% allá; acá 3-5%, tampoco proporcional al costo
-de 1.8×-1.9×). Motivo adicional, de producto y no de rendimiento: el
-mecanismo de `minimize_size` (decide por fotograma si sale como keyframe
-o como diferencia, `webp_jni.c:65`) generó artefactos visuales
-(líneas negras) en WhatsApp en la experiencia previa del equipo con este
-mecanismo — dos motivos independientes para sacarlo, no uno solo.
+de 1.8×-1.9×). Motivo adicional, de producto y no de rendimiento:
+`sticker-convert` (proyecto de terceros) reporta haberlo sacado por la
+misma razón — el mecanismo de `minimize_size` (decide por fotograma si
+sale como keyframe o como diferencia, `webp_jni.c:65`) le generó líneas
+negras en WhatsApp. No se reprodujo ese artefacto en este dispositivo;
+son dos motivos independientes para sacarlo (el costo medido arriba, más
+el reporte de terceros sin verificar acá), no uno solo.
 Harness: `SampledQualitySearchProbeTest` (`:app` androidTest).
 
 ### Prototipo descartado: bisección de calidad sobre una muestra de fotogramas

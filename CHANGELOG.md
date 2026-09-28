@@ -58,8 +58,9 @@ de 8 a 10 (ADR-0018, reemplaza ADR-0012).
   dispositivo.
 - **`WebpAnimEncoder` ya no usa `minimize_size`** (cambia ese punto de
   ADR-0006): medido en contenido real, costaba 1.8×-1.9× el tiempo de la
-  codificación que ya cupo por un 3-5% de tamaño, y además generaba
-  artefactos visuales (líneas negras) en WhatsApp. `NativeWebpEncoder`
+  codificación que ya cupo por un 3-5% de tamaño; `sticker-convert`
+  (proyecto de terceros) reporta además líneas negras en WhatsApp con
+  este mecanismo, no verificado en este dispositivo. `NativeWebpEncoder`
   conserva el parámetro para medición directa, ya no para producción.
 
 ### Investigado y descartado

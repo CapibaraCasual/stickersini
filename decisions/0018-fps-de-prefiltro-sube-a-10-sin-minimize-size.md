@@ -51,10 +51,13 @@ Medido en contenido real (no el sintético de ADR-0006): `minimize_size`
 cuesta 1.8×-1.9× el tiempo de la codificación que ya cupo, por un 3-5% de
 ahorro de tamaño — confirma en contenido real lo que ADR-0006 ya midió
 como marginal (≤0.1%) en otro contenido, ahora con un costo relativo
-todavía peor. Motivo adicional, de corrección y no de rendimiento: el
-mecanismo de `minimize_size` (decide por fotograma si sale como keyframe
-o como diferencia) generó artefactos visuales (líneas negras) en WhatsApp
-en la experiencia previa del equipo con este mecanismo.
+todavía peor. Motivo adicional, de corrección y no de rendimiento:
+`sticker-convert` (proyecto de terceros) reporta haberlo sacado por la
+misma razón — el mecanismo de `minimize_size` (decide por fotograma si
+sale como keyframe o como diferencia) le generó líneas negras en
+WhatsApp. No se reprodujo ese artefacto en este dispositivo; se saca por
+el costo de tiempo medido arriba, con el reporte de terceros como motivo
+adicional, no verificado acá.
 
 **Cambia el punto de [ADR-0006](0006-acotar-el-costo-de-tiempo-de-webpanimencoder.md)
 que reservaba `minimize_size` para cuando el resultado ya válido quedaba

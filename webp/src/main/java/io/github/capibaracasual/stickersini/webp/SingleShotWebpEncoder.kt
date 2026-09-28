@@ -12,8 +12,9 @@ fun interface SingleShotWebpEncoder {
      * lento, prueba cada fotograma como keyframe y como diferencia contra
      * el anterior. [WebpAnimEncoder] siempre lo deja en `false` (ADR-0018,
      * cambia este punto de ADR-0006: medido en contenido real, costaba
-     * 1.8×-1.9× el tiempo por un 3-5% menos de tamaño, y además generaba
-     * artefactos visuales en WhatsApp) — el parámetro sigue existiendo acá
+     * 1.8×-1.9× el tiempo por un 3-5% menos de tamaño; `sticker-convert`,
+     * proyecto de terceros, reporta además líneas negras en WhatsApp con
+     * este mecanismo, no verificado en este dispositivo) — el parámetro sigue existiendo acá
      * para medirlo directo (`WebpMinimizeSizeCostTest`,
      * `SampledQualitySearchProbeTest` en `:app`), no para uso en producción.
      *

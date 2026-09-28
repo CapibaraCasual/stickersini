@@ -139,8 +139,9 @@ private fun degradeResolution(frames: List<WebpFrame>, resolution: Int): List<We
  * en contenido real, cuesta 1.8×-1.9× el tiempo de la codificación que ya
  * cupo por solo un 3-5% menos de tamaño — no vale la pena ese costo, y
  * aparte afecta la decisión de cuadro-clave-vs-diferencia por fotograma de
- * una forma que en la práctica generó artefactos visuales en WhatsApp. Un
- * tope duro de tiempo (RNF-08) acota cuánto
+ * una forma que `sticker-convert` (proyecto de terceros) reporta que le
+ * generó líneas negras en WhatsApp — no verificado en este dispositivo,
+ * motivo adicional al costo medido. Un tope duro de tiempo (RNF-08) acota cuánto
  * puede tardar el caso adverso, estimando la duración de cada codificación
  * antes de lanzarla en vez de solo comprobar el reloj después — y, dentro
  * de un mismo escalón, **estimando por proporción si un intento tiene
