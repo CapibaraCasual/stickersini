@@ -27,6 +27,13 @@ interno de una clase concreta viven en su KDoc, no acá.
   conserva la implementación equivalente en Kotlin como referencia para
   `YuvConversionParityTest` (paridad píxel a píxel), no como ruta de
   producción.
+- **`assets/licenses/`, en `:app` y en `:webp`** ([ADR-0017](../../decisions/0017-lista-manual-de-licencias-de-terceros.md))
+  — no todo lo que aporta un módulo Android es código: `:webp` también
+  carga su propio `COPYING`/`PATENTS` vendorizado (ADR-0005) como asset, que
+  AGP fusiona junto con los de `:app` (licencia propia, Apache-2.0,
+  Fredoka/Karla) en un único `assets/` dentro del APK final. La pantalla de
+  licencias (`ui/LicensesScreen.kt`) lee esos archivos por ruta relativa a
+  esa carpeta ya fusionada; no le importa de qué módulo vino cada uno.
 
 ## Flujo: importar un video existente hasta un WebP animado (Fase 2, RF-02)
 
