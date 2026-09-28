@@ -1,6 +1,6 @@
 # ADR-0012: El fps de prefiltro sube de 5 a 8, un solo valor para todo el rango de RF-06
 
-- Estado: Aceptado
+- Estado: Aceptado — Superseded por [ADR-0018](0018-fps-de-prefiltro-sube-a-10-sin-minimize-size.md) (sube el fps de prefiltro a 10, tras sacar `minimize_size` de producción)
 - Fecha: 2026-09-25
 
 ## Contexto

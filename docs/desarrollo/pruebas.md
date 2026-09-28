@@ -2212,3 +2212,144 @@ más de 13 000 ms en este caso.
 
 **Contenido representativo (3 s):** sin cambios, 59672 bytes a calidad 75
 en una sola pasada — no toca ningún escalón nuevo.
+
+## Fase 3 — fluidez 12-15 fps: por qué GPU y `method` no ayudan, `minimize_size` sí (2026-09-28)
+
+Pedido de producto: subir la fluidez del prefiltro de video (meta 12-15
+fps) investigando dos palancas — decodificar por GPU (`Surface`+GLES, la
+Opción 1 que ADR-0008 dejó sin medir, no descartada por medición) y bajar
+`method` de libwebp. Antes de escribir el spike de GLES (la parte más
+cara y riesgosa), se corrió el pipeline de PRODUCCIÓN sin ningún cambio
+(`VideoFrameDecoder` + `WebpAnimEncoder`) a fps variable, contra el mismo
+video real de siempre, para localizar el cuello de botella real primero.
+
+### Localización del cuello de botella (5 corridas, invocaciones separadas, tramo de 10 s)
+
+| targetFps | decodeMs | encodeMs | totalMs | resultado |
+|---|---|---|---|---|
+| 8 (control) | 2079 (1857–2400) | 13393 (13278–13876) | 15658 (15357–16276) | 80 fotogramas, calidad 75, 408 822 B |
+| 12 | 2074 (1922–2212) | 18749 (18679–19139) | **20846** (20633–21320) | 95 fotogramas (de 120), calidad 37 — **rompe RNF-08 en 5/5** |
+| 15 | 2235 (2119–2329) | 16598 (16571–16620) | 18833 (18739–18900) | 45 fotogramas, **acortado a ~3.1 s** (`shortenedByMs`≈6903) en 5/5 |
+
+Harness: `HighFpsPipelineProbeTest` (`:app` androidTest, `-e targetFps N`
+a `am instrument`).
+
+**Conclusión: el decode es plano (~2.0-2.3 s) sin importar el fps de
+muestreo** — `MediaCodec` decodifica todos los fotogramas de origen igual,
+sea cual sea el prefiltro (las dependencias P/B no permiten saltarse el
+decode); la conversión paralela (ADR-0015) absorbe barato lo que cambia.
+GPU en decode ahorraría como mucho esos ~2 s — no alcanza para arreglar
+ni el incumplimiento de tiempo a 12 fps ni el acortamiento a 15 fps. **No
+se escribió el spike de GLES**: la propia medición ya descarta la vía
+antes de pagar su costo de construcción. Tampoco hay margen en `method`:
+ya está en su piso (`0`, ADR-0006, fijado en código en
+`NativeWebpEncoder.kt`) — no hay "bajarlo" más.
+
+### `minimize_size`: costo real en contenido real, no marginal
+
+Aislado con `SingleShotWebpEncoder`/`ProductionWebpEncoder` directo (sin
+pasar por la lógica de "cerca del límite" de `WebpAnimEncoder`), a la
+calidad ganadora de cada configuración, sobre los mismos fotogramas
+reales:
+
+| targetFps | sin minimize_size | con minimize_size | ahorro | costo extra |
+|---|---|---|---|---|
+| 8 | 4618 ms / 422 508 B | 8809 ms / 408 822 B | 3.24% | +4191 ms (1.9×) |
+| 12 | 6406 ms / 438 394 B | 11643 ms / 418 370 B | 4.57% | +5237 ms (1.8×) |
+| 15 | 8109 ms / 738 618 B | 14973 ms / 713 254 B | 3.43% | +6864 ms (1.8×) |
+
+Confirma en contenido real lo que ADR-0006 midió en otro contenido
+(beneficio marginal, ≤0.1% allá; acá 3-5%, tampoco proporcional al costo
+de 1.8×-1.9×). Motivo adicional, de producto y no de rendimiento: el
+mecanismo de `minimize_size` (decide por fotograma si sale como keyframe
+o como diferencia, `webp_jni.c:65`) generó artefactos visuales
+(líneas negras) en WhatsApp en la experiencia previa del equipo con este
+mecanismo — dos motivos independientes para sacarlo, no uno solo.
+Harness: `SampledQualitySearchProbeTest` (`:app` androidTest).
+
+### Prototipo descartado: bisección de calidad sobre una muestra de fotogramas
+
+Idea evaluada: bisecar calidad sobre 1 de cada 4 fotogramas (barato),
+extrapolar el tamaño objetivo por proporción, y verificar con una sola
+codificación completa. Implementado replicando exactamente la política de
+producción (semilla en `FIRST_QUALITY=75`, parar en el primer ajuste, no
+bisecar a ciegas desde 100) para una comparación justa:
+
+| targetFps | enfoque actual | prototipo (muestra + verificación) |
+|---|---|---|
+| 8 | 13401 ms (1 intento completo) | 14534 ms (7 sobre la muestra + 1 completo) |
+| 12 | 18742 ms (3 intentos completos) | 21145 ms (7 sobre la muestra + 1 completo) |
+| 15 | 17097 ms (3 intentos completos) | 24278 ms (7 sobre la muestra + 1 completo) |
+
+**Descartado: más lento que el enfoque actual en las tres
+configuraciones.** Causa raíz: tomar 1 de cada 4 fotogramas rompe la
+redundancia temporal entre fotogramas consecutivos que el codificador de
+diferencias de WebP aprovecha, así que la muestra comprime *peor* de lo
+que la proporción predice — calidad 75 nunca entra en la muestra y hace
+falta bisecar completo igual (7 intentos, cada uno barato, pero son más
+intentos que los 1-3 que ya logra producción con su semilla, y encima se
+paga una verificación completa al final). No es un problema de ajustar el
+`stride`: el mecanismo que abarata cada intento (menos bytes por
+fotograma) es el mismo que rompe la premisa de la extrapolación (menos
+redundancia temporal por fotograma conservado). Se descartó también la
+variante de tramo contiguo (conserva la redundancia temporal dentro del
+tramo, a costa de no representar el clip completo en la muestra) sin
+medirla: no ataca el problema de fondo (el número de intentos de
+bisección ya es bajo hoy, 1-3; ganar tiempo por intento no compensa
+perder la representatividad del tramo completo para un contenido con
+cambios de escena repartidos en los 10 s).
+
+### Producción: se saca `minimize_size` (commit aparte, cambia parte de ADR-0006)
+
+Con los dos hallazgos de arriba, se removió la fase de cierre de
+`minimize_size` de `WebpAnimEncoder` (`bisectQuality`/`attempt` ya
+codificaban siempre con `minimizeSize=false`; solo la fase final la
+activaba). `NativeWebpEncoder`/`SingleShotWebpEncoder` conservan el
+parámetro para medición directa (este mismo apartado lo usa así). Tests
+unitarios de `WebpAnimEncoderTest` que ejercían el comportamiento de
+`minimize_size` (2 de 17) se eliminaron; el resto sigue verde.
+
+### Remedición completa sin `minimize_size`, tramo de 10 s (5 corridas, invocaciones separadas)
+
+| targetFps | totalMs mediana [rango] | ¿Cumple 20000ms? | Tamaño | Calidad | Fotogramas | ¿Acortó el clip? |
+|---|---|---|---|---|---|---|
+| 8 | 6757 [6677–7080] | Sí, 64.6% margen | 422 508 B | 75 | 80/80 | No |
+| **10** | **18482** [18447–**19164**] | **Sí, 5/5, 4.2% margen** | 350 658 B | 37 | 96/100 | No |
+| 12 | 20839 [20829–**21046**] | **No, 5/5 sobre el tope** | 394 736 B | 37 | 95/120 | No (mismo motivo: rompe tiempo, no tamaño) |
+| 15 | 18757 [18589–19301] | Sí, 5/5 | 197 444 B | 75 | 45/150 | **Sí, a ~3.1 s** |
+
+Sacar `minimize_size` le da a 8 fps un margen enorme (64.6%, contra
+12.1%-23.4% históricos) — la mayor parte del costo de esa configuración
+era la pasada de minimizado, no la bisección en sí. Pero **10 fps es el
+único valor de los cuatro medidos que cumple el tiempo sin acortar el
+clip**: 12 fps sigue rompiendo el tope de 20 s incluso sin
+`minimize_size` (el problema no era ese, era necesitar 3 codificaciones
+completas a 120→95 fotogramas), y 15 fps sigue cayendo en el escalón de
+acortar duración de ADR-0016 porque no cabe en 500 KB a la duración
+completa (un problema de tamaño, no de tiempo — sacar `minimize_size` no
+lo toca).
+
+### Validación adicional: fps=10 en los tramos de 3 s y 5 s
+
+ADR-0012 encontró que el tramo de 5 s podía fallar antes que el de 10 s
+(9 fps rompía 5 s sin romper 10 s) — se repitió la verificación para no
+recomendar un valor que falle en un tramo más corto sin haberlo medido:
+
+| Tramo | totalMs mediana [rango] | Presupuesto | Margen peor caso | Calidad |
+|---|---|---|---|---|
+| 3 s | 2421 [2399–2569] | 5000 | 48.6% | 75 |
+| 5 s | 3710 [3649–3725] | 5000 | 25.5% | 75 |
+
+Ambos con margen amplio, sin bisección (calidad 75 entra a la primera en
+los dos). **El tramo de 10 s es el único ajustado (4.2%) de los tres** —
+más parecido en espíritu al 2.8%-12.1% que ya aceptó ADR-0012 en su
+momento para el clip largo, pero más ajustado que cualquier valor que
+haya llegado a producción hasta ahora. Advertencia igual que en ADR-0012:
+medido en un solo dispositivo (Xiaomi Redmi Note 14); un dispositivo más
+lento podría no sostener este margen.
+
+### Conclusión: ADR-0018 sube el fps de prefiltro de 8 a 10 y saca `minimize_size`
+
+Ver [ADR-0018](../../decisions/0018-fps-de-prefiltro-sube-a-10-sin-minimize-size.md).
+Reemplaza ADR-0012 (el valor de fps) y cambia el punto de ADR-0006 sobre
+`minimize_size` (ya no se usa en producción).

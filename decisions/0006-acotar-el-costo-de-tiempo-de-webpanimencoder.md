@@ -1,6 +1,6 @@
 # ADR-0006: Codificar sin buscar cuando el contenido ya cabe
 
-- Estado: Aceptado — Superseded parcialmente por [ADR-0007](0007-piso-de-fotogramas-antes-de-bajar-calidad.md) (punto 3 de la Decisión: reducción de fotogramas)
+- Estado: Aceptado — Superseded parcialmente por [ADR-0007](0007-piso-de-fotogramas-antes-de-bajar-calidad.md) (punto 3 de la Decisión: reducción de fotogramas) y por [ADR-0018](0018-fps-de-prefiltro-sube-a-10-sin-minimize-size.md) (saca `minimize_size` de producción: medido en contenido real, costaba 1.8×-1.9× el tiempo por 3-5% de tamaño, y generaba artefactos visuales en WhatsApp)
 - Fecha: 2026-09-20
 
 ## Contexto
