@@ -1,6 +1,6 @@
 # ADR-0018: El fps de prefiltro sube de 8 a 10, sin `minimize_size` en producción (reemplaza ADR-0012, cambia parte de ADR-0006)
 
-- Estado: Aceptado e implementado
+- Estado: Aceptado e implementado — Superseded por [ADR-0019](0019-fps-sube-a-20-rf-06-baja-a-5s.md) (la medición de este ADR se hizo contra un `.so` de debug sin optimizar; remedida contra release, sube a 20 fps con RF-06 acotado a 5 s)
 - Fecha: 2026-09-28
 
 ## Contexto

@@ -213,6 +213,18 @@ que debería seguir cumpliendo.
   intento con alguna chance. Estimar primero no es prematuro: la misma
   matemática que ya se usa para decidir cuántos fotogramas reducir sirve
   para decidir si vale la pena intentar del todo (ADR-0016).
+- **Una decisión de presupuesto de tiempo (RNF-08 o cualquiera) medida
+  contra un `.so` nativo de debug da un techo mucho más bajo que el
+  real.** ADR-0009/0012/0015/0018 fijaron el fps de prefiltro de video
+  midiendo siempre contra el build de debug por defecto, sin saberlo:
+  `:webp` compila sin ninguna bandera `-O` en debug (el default de Clang,
+  `-O0`) contra `-O2 -DNDEBUG` en release — con el mismo contenido, la
+  codificación WebP salió 5.9×-6.6× más lenta en debug. No estaban "mal"
+  con los datos que tenían, midieron en el ambiente equivocado (ADR-0019
+  remidió contra release y subió el fps de 10 a 20). Toda medición futura
+  que decida un valor contra un presupuesto de tiempo debe compilarse y
+  correrse con `assembleRelease`/`testBuildType = "release"`, no con el
+  build de debug por defecto.
 
 ---
 
