@@ -22,14 +22,14 @@ class WebpAnimEncoderTest {
         List(count) { WebpFrame(bitmap = mock(Bitmap::class.java), durationMs = durationMs) }
 
     @Test
-    fun `si la primera pasada cabe de sobra, no busca ni minimiza`() {
+    fun `si la primera pasada cabe de sobra, no busca mas`() {
         var calls = 0
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { _, quality, minimizeSize ->
                 calls++
                 assertEquals(75, quality)
-                assertFalse(minimizeSize)
-                ByteArray(50_000) // 10% del límite de 500_000: no está "cerca"
+                assertFalse(minimizeSize) // ADR-0018: WebpAnimEncoder nunca minimiza
+                ByteArray(50_000) // 10% del límite de 500_000
             },
         )
 
@@ -42,35 +42,6 @@ class WebpAnimEncoderTest {
     }
 
     @Test
-    fun `si el resultado ya valido queda cerca del limite, prueba minimize_size`() {
-        val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { _, _, minimizeSize ->
-                if (minimizeSize) ByteArray(420_000) else ByteArray(450_000) // 90% del límite: "cerca"
-            },
-        )
-
-        val result = encoder.encode(frames(5))
-
-        assertEquals(420_000, result.bytes.size) // usa el resultado minimizado, más chico
-    }
-
-    @Test
-    fun `si minimize_size no mejora el resultado, se queda con el de la busqueda`() {
-        val encoder = WebpAnimEncoder(
-            singleShotEncoder = SingleShotWebpEncoder { _, _, minimizeSize ->
-                // No debería pasar nunca en la realidad (minimize_size solo puede
-                // achicar o igualar), pero si pasara, no debe romper RF-10.
-                if (minimizeSize) ByteArray(999_999) else ByteArray(450_000)
-            },
-        )
-
-        val result = encoder.encode(frames(5))
-
-        assertEquals(450_000, result.bytes.size)
-        assertTrue(result.bytes.size <= 500_000)
-    }
-
-    @Test
     fun `si la calidad fija no basta, reduce fotogramas por proporcion en un solo paso`() {
         // tamaño simulado = fotogramas x 20_000, sin depender de la calidad
         // (fases 1 y 2 siempre codifican a 75): con 40 fotogramas no cabe
@@ -80,8 +51,8 @@ class WebpAnimEncoderTest {
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
                 assertEquals(75, quality)
-                val base = candidateFrames.size * 20_000
-                if (minimizeSize) ByteArray(base - 5_000) else ByteArray(base)
+                assertFalse(minimizeSize) // ADR-0018: WebpAnimEncoder nunca minimiza
+                ByteArray(candidateFrames.size * 20_000)
             },
             resolutionDegrader = { candidateFrames, _ -> candidateFrames },
         )
@@ -90,12 +61,11 @@ class WebpAnimEncoderTest {
 
         assertEquals(25, result.frameCount)
         assertEquals(75, result.quality)
-        // 500_000 (100% del límite) dispara minimize_size, que lo deja en 495_000.
-        assertEquals(495_000, result.bytes.size)
+        assertEquals(500_000, result.bytes.size) // 100% del límite, justo cabe
     }
 
     @Test
-    fun `si reducir fotogramas no basta, bisecta calidad despues, sin minimizar si no hace falta`() {
+    fun `si reducir fotogramas no basta, bisecta calidad despues`() {
         // A calidad 75 el tamaño no baja de forma proporcional al reducir
         // fotogramas (hay un costo fijo de 300_000 que no depende del
         // número de fotogramas): con 40 fotogramas no cabe (3_900_000); la
@@ -107,10 +77,9 @@ class WebpAnimEncoderTest {
         // (piso, ver KDoc de QualitySearch). En este fake todas las
         // calidades caben, así que igual converge a 74, con un intento más
         // que si hubiera empezado por el medio.
-        var minimizeSizeCalls = 0
         val encoder = WebpAnimEncoder(
             singleShotEncoder = SingleShotWebpEncoder { candidateFrames, quality, minimizeSize ->
-                if (minimizeSize) minimizeSizeCalls++
+                assertFalse(minimizeSize) // ADR-0018: WebpAnimEncoder nunca minimiza
                 val count = candidateFrames.size
                 if (quality == 75) {
                     ByteArray(count * 90_000 + 300_000)
@@ -126,8 +95,6 @@ class WebpAnimEncoderTest {
         assertEquals(15, result.frameCount)
         assertEquals(74, result.quality)
         assertEquals(89_000, result.bytes.size)
-        // 89_000 es 17.8% del límite: no está "cerca", no debió minimizarse.
-        assertEquals(0, minimizeSizeCalls)
     }
 
     @Test

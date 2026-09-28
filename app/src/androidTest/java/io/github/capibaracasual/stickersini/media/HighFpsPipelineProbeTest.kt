@@ -55,6 +55,8 @@ class HighFpsPipelineProbeTest {
         val context = instrumentation.targetContext
         val targetFps = InstrumentationRegistry.getArguments().getString("targetFps")?.toIntOrNull()
             ?: VIDEO_PREFILTER_TARGET_FPS
+        val durationMs = InstrumentationRegistry.getArguments().getString("durationMs")?.toLongOrNull()
+            ?: MAX_CLIP_DURATION_MS
         val videoFile = testVideoFile()
         val uri = Uri.fromFile(videoFile)
 
@@ -66,10 +68,10 @@ class HighFpsPipelineProbeTest {
             writer.flush()
         }
 
-        line("=== una corrida, VideoFrameDecoder(targetFps=$targetFps) durationMs=10000 ===")
+        line("=== una corrida, VideoFrameDecoder(targetFps=$targetFps) durationMs=$durationMs ===")
         try {
             val decodeStart = System.nanoTime()
-            val importResult = VideoFrameDecoder(targetFps = targetFps).decode(context, uri, durationMs = 10_000L)
+            val importResult = VideoFrameDecoder(targetFps = targetFps).decode(context, uri, durationMs = durationMs)
             val decodeMs = (System.nanoTime() - decodeStart) / 1_000_000
 
             val encodeStart = System.nanoTime()

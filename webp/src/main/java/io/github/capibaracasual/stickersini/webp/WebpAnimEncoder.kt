@@ -80,15 +80,6 @@ private const val DEGRADED_RESOLUTION = 384
 private const val HARD_TIME_LIMIT_MS = 20_000L
 
 /**
- * `minimize_size` solo se prueba si el mejor resultado ya válido ocupa al
- * menos esta fracción de [ANIMATED_WEBP_TARGET_SIZE_BYTES]. ADR-0006 lo
- * justifica con una medición: el beneficio de `minimize_size` fue nulo o
- * marginal (≤0.1%) en los dos contenidos medidos, a 1.7×-2× el costo en
- * tiempo — no vale la pena pagarlo cuando ya hay margen de sobra.
- */
-private const val CLOSE_TO_LIMIT_FRACTION = 0.8
-
-/**
  * En el piso de fotogramas, tras asegurar que la calidad mínima cabe, solo
  * tiene sentido seguir bisecando hacia arriba si ese resultado deja margen
  * real. Medido en dispositivo: calidad 0 a 15 fotogramas ocupó el 70% del
@@ -144,8 +135,12 @@ private fun degradeResolution(frames: List<WebpFrame>, resolution: Int): List<We
  *    fotogramas por debajo del piso, hasta [ABSOLUTE_MIN_FRAME_COUNT], para
  *    garantizar que siempre haya un resultado (RF-12).
  *
- * `minimize_size` se reserva para cuando el resultado ya válido queda
- * cerca del límite de RF-10. Un tope duro de tiempo (RNF-08) acota cuánto
+ * No usa `minimize_size` (ADR-0018, cambia este punto de ADR-0006): medido
+ * en contenido real, cuesta 1.8×-1.9× el tiempo de la codificación que ya
+ * cupo por solo un 3-5% menos de tamaño — no vale la pena ese costo, y
+ * aparte afecta la decisión de cuadro-clave-vs-diferencia por fotograma de
+ * una forma que en la práctica generó artefactos visuales en WhatsApp. Un
+ * tope duro de tiempo (RNF-08) acota cuánto
  * puede tardar el caso adverso, estimando la duración de cada codificación
  * antes de lanzarla en vez de solo comprobar el reloj después — y, dentro
  * de un mismo escalón, **estimando por proporción si un intento tiene
@@ -177,23 +172,22 @@ private fun degradeResolution(frames: List<WebpFrame>, resolution: Int): List<We
  * [resolutionDegrader] es sustituible por la misma razón: `degradeResolution`
  * usa `Bitmap.createScaledBitmap`, que no funciona fuera de un runtime
  * Android real (los tests JVM puros de este módulo usan bitmaps
- * simulados). [hardTimeLimitMs] y [closeToLimitFraction] son parámetros,
- * no constantes fijas, para poder probar ambos límites en JUnit sin
- * esperar segundos reales ni depender del valor de producción exacto.
+ * simulados). [hardTimeLimitMs] es un parámetro, no una constante fija,
+ * para poder probarlo en JUnit sin esperar segundos reales ni depender del
+ * valor de producción exacto.
  */
 class WebpAnimEncoder(
     private val singleShotEncoder: SingleShotWebpEncoder = NativeWebpEncoder,
     private val targetSizeBytes: Int = ANIMATED_WEBP_TARGET_SIZE_BYTES,
     private val hardTimeLimitMs: Long = HARD_TIME_LIMIT_MS,
-    private val closeToLimitFraction: Double = CLOSE_TO_LIMIT_FRACTION,
     private val resolutionDegrader: (List<WebpFrame>, Int) -> List<WebpFrame> = ::degradeResolution,
 ) {
 
     /**
-     * @param onAttempt se llama antes de cada codificación real (no antes de
-     * la de `minimize_size` final), con cuánto del presupuesto de
-     * [hardTimeLimitMs] ya se gastó — ver [EncodeAttemptProgress]. El número
-     * total de intentos no se puede anticipar (depende del contenido), pero
+     * @param onAttempt se llama antes de cada codificación real, con cuánto
+     * del presupuesto de [hardTimeLimitMs] ya se gastó — ver
+     * [EncodeAttemptProgress]. El número total de intentos no se puede
+     * anticipar (depende del contenido), pero
      * la fracción de tiempo gastado sí es información real para mostrar
      * avance, no un indicador indeterminado (RNF-08).
      * @throws WebpEncodeException si [frames] no cumple RF-13, o si no se
@@ -417,19 +411,8 @@ class WebpAnimEncoder(
         val finalQuality = checkNotNull(bestQuality)
         val finalFrames = checkNotNull(bestFrames)
 
-        // Fase de cierre: minimize_size solo si el resultado ya válido
-        // queda cerca del límite (ADR-0006): es la única pasada que puede
-        // pagar su costo extra sin desviarse de RNF-08 cuando no hace falta.
-        val closeToLimit = finalBytes.size >= targetSizeBytes * closeToLimitFraction
-        val bytesToReturn = if (closeToLimit && estimatedTimeAllows(finalFrames.size)) {
-            val minimized = singleShotEncoder.encode(finalFrames, finalQuality, minimizeSize = true)
-            if (minimized.size <= targetSizeBytes) minimized else finalBytes
-        } else {
-            finalBytes
-        }
-
         return WebpEncodeResult(
-            bytes = bytesToReturn,
+            bytes = finalBytes,
             quality = finalQuality,
             frameCount = finalFrames.size,
             frameDurationsMs = finalFrames.map { it.durationMs },

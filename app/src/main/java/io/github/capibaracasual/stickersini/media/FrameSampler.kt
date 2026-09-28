@@ -19,15 +19,28 @@ const val MAX_CLIP_DURATION_MS = 10_000L
  * el piso de ADR-0007 (5 fps), conservador a propósito por falta de
  * margen medido.
  *
- * **ADR-0012 sube este valor a 8**, una vez que ADR-0011 (conversión
- * YUV→RGB nativa) liberó margen de tiempo real: es el fps más alto que
- * cumple de forma confiable, contando el peor caso de 5 corridas, en las
- * tres duraciones medidas (3, 5 y 10 s) — 9 fps ya falla el tramo de 5 s de
- * RNF-08 en 2 de 5 corridas. Un solo valor, no dependiente de la duración
- * del clip: no hay razón de producto para que un sticker corto se vea peor
- * que uno largo.
+ * ADR-0012 subió este valor a 8, una vez que ADR-0011 (conversión YUV→RGB
+ * nativa) liberó margen de tiempo real. **ADR-0018 lo sube a 10**, tras
+ * sacar la fase de `minimize_size` de `WebpAnimEncoder` (ADR-0006/ADR-0018:
+ * medido en contenido real, costaba 1.8×-1.9× el tiempo de encode por un
+ * 3-5% de tamaño, y generaba artefactos visuales en WhatsApp) — sin esa
+ * fase, 8 fps pasó a tener 64.6% de margen contra RNF-08 en el tramo de
+ * 10 s, margen de sobra para subir. 10 es el fps más alto que cumple de
+ * forma confiable, contando el peor caso de 5 corridas, en las tres
+ * duraciones medidas (3, 5 y 10 s): 12 fps ya rompe el tramo de 10 s en
+ * 5 de 5 corridas (necesita 3 codificaciones completas para 120→95
+ * fotogramas, un costo que sacar `minimize_size` no toca), y 15 fps no
+ * cabe en el límite de tamaño de RF-10 a duración completa, así que
+ * ADR-0016 lo acorta a ~3 s en vez de cumplir a 10 s. Un solo valor, no
+ * dependiente de la duración del clip: no hay razón de producto para que
+ * un sticker corto se vea peor que uno largo.
+ *
+ * El margen del tramo de 10 s a 10 fps (4.2% peor caso) es el más ajustado
+ * que haya llegado a producción hasta ahora — medido en un solo
+ * dispositivo (Xiaomi Redmi Note 14): un teléfono más lento podría no
+ * sostenerlo. Este valor no se toca sin repetir esta misma medición.
  */
-const val VIDEO_PREFILTER_TARGET_FPS = 8
+const val VIDEO_PREFILTER_TARGET_FPS = 10
 
 /**
  * Decide, fotograma a fotograma y en el mismo orden en que `MediaCodec` los
