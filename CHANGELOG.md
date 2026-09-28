@@ -7,6 +7,40 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.10.0-alpha] - 2026-09-28
+
+Investigación de fluidez (meta 12-15 fps): ninguna de las dos palancas
+pedidas (decode por GPU, bajar `method`) ataca el cuello de botella real,
+pero sacar `minimize_size` sí abre margen real — sube el fps de prefiltro
+de 8 a 10 (ADR-0018, reemplaza ADR-0012).
+
+### Cambiado
+- **`VIDEO_PREFILTER_TARGET_FPS` sube de 8 a 10.** Medido con 5 corridas
+  separadas en los tres tramos de RNF-08 (3s/5s/10s): 10 fps es el más
+  alto que cumple sin acortar el clip. 12 fps sigue rompiendo el tope de
+  10s incluso sin `minimize_size`; 15 fps sigue cayendo en el escalón de
+  acortar duración de ADR-0016 porque no cabe en 500 KB a duración
+  completa. Margen del tramo de 10s: 4.2% en el peor caso — el más
+  ajustado que haya llegado a producción hasta ahora, medido en un solo
+  dispositivo.
+- **`WebpAnimEncoder` ya no usa `minimize_size`** (cambia ese punto de
+  ADR-0006): medido en contenido real, costaba 1.8×-1.9× el tiempo de la
+  codificación que ya cupo por un 3-5% de tamaño, y además generaba
+  artefactos visuales (líneas negras) en WhatsApp. `NativeWebpEncoder`
+  conserva el parámetro para medición directa, ya no para producción.
+
+### Investigado y descartado
+- Decodificar por GPU (`Surface`+GLES): el decode+conversión ya es plano
+  (~2-2.3 s) sin importar el fps de muestreo — no es el cuello de
+  botella, así que no se construyó el spike de GLES.
+- Búsqueda de calidad por bisección sobre una muestra de fotogramas: más
+  lenta que el enfoque actual en las tres configuraciones probadas (la
+  muestra rompe la redundancia temporal entre fotogramas que aprovecha
+  el codificador de diferencias de WebP).
+
+Detalle completo, con todas las trazas y tablas, en
+`docs/desarrollo/pruebas.md` y ADR-0018.
+
 ## [0.9.0-alpha] - 2026-09-28
 
 RNF-11: pantalla de avisos de licencia, accesible desde la portada.

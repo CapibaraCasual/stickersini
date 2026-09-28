@@ -18,22 +18,37 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.9.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.10.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
-**Rendimiento sigue cerrado** (fps de prefiltro en 8, techo real medido —
-ADR-0012/ADR-0015): esta versión no reabre ese tema. Sí encontró y cerró
-un bug de corrección distinto, en uso real: RF-12 fallaba de forma
-**garantizada** (no como caso límite raro) al convertir contenido adverso
-en el tramo máximo de RF-06 (10 s) — el piso de fotogramas de ADR-0007
-escalaba con la duración del clip y nunca se había validado más allá de
-3 s; para 10 s no existía ninguna combinación de calidad que hiciera
-caber el resultado. ADR-0016 rediseña la escalera de degradación (piso
-fijo de fotogramas, resolución de codificación y acortar duración como
-escalones nuevos, estimar antes de gastar una codificación completa) y
-lo confirma en dispositivo real: el caso que fallaba ya no falla, y el
-caso de referencia de ADR-0007 da el mismo resultado de siempre, más
-rápido.
+**Rendimiento: reabierto y cerrado de nuevo, con un valor nuevo.**
+Pedido de producto — más fluidez en los animados (meta 12-15 fps) — llevó
+a investigar decodificar por GPU y bajar `method` de libwebp. Ninguna de
+las dos ataca el cuello de botella real: el decode ya es plano (~2-2.3 s)
+sin importar el fps, y `method` ya estaba en su piso (0, ADR-0006). Lo
+que sí tenía margen real era `minimize_size` — medido en contenido real,
+costaba 1.8×-1.9× el tiempo por un 3-5% de tamaño, y generaba artefactos
+visuales en WhatsApp —, así que se sacó de producción. Con ese margen
+liberado, el fps de prefiltro sube de 8 a 10 (**ADR-0018, reemplaza
+ADR-0012**): el valor más alto que cumple RNF-08 sin acortar el clip, en
+las tres duraciones del requisito. 12 fps sigue rompiendo el tope de 10 s
+incluso sin `minimize_size`; 15 fps sigue cayendo en el escalón de
+acortar duración de ADR-0016 porque no cabe en 500 KB a duración
+completa. El margen del tramo de 10 s a 10 fps (4.2% peor caso) es el más
+ajustado que haya llegado a producción — medido en un solo dispositivo,
+igual advertencia que ya dejó ADR-0012.
+
+Antes de esto, se encontró y cerró un bug de corrección distinto, en uso
+real: RF-12 fallaba de forma **garantizada** (no como caso límite raro)
+al convertir contenido adverso en el tramo máximo de RF-06 (10 s) — el
+piso de fotogramas de ADR-0007 escalaba con la duración del clip y nunca
+se había validado más allá de 3 s; para 10 s no existía ninguna
+combinación de calidad que hiciera caber el resultado. ADR-0016 rediseña
+la escalera de degradación (piso fijo de fotogramas, resolución de
+codificación y acortar duración como escalones nuevos, estimar antes de
+gastar una codificación completa) y lo confirma en dispositivo real: el
+caso que fallaba ya no falla, y el caso de referencia de ADR-0007 da el
+mismo resultado de siempre, más rápido.
 
 **La dirección visual ("Plancha de stickers", elegida entre tres
 propuestas) ya está aplicada a las seis pantallas del recorrido
@@ -149,8 +164,10 @@ segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
     más fotogramas, no el tamaño del archivo final, así que bajar
     resolución ataca el cuello de botella equivocado. Detalle completo del
     barrido (36 combinaciones, 180 corridas) en `docs/desarrollo/pruebas.md`.
-  - **8 fps es el techo de este pipeline, no una elección conservadora
-    (ADR-0015, cierra el tema).** Investigadas las dos vías que quedaban:
+  - **8 fps era el techo de este pipeline con `minimize_size` en
+    producción, no una elección conservadora (ADR-0015, cerrado en su
+    momento; ver ADR-0018 más abajo, que sube a 10 tras sacar
+    `minimize_size`).** Investigadas las dos vías que quedaban:
     decodificar a menor resolución (el dispositivo medido ignora un
     `ImageReader` más chico que el nativo, no hay ganancia posible ahí) y
     paralelizar la codificación de fotogramas (`WebPAnimEncoderAdd` es
@@ -215,6 +232,22 @@ segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
     runtime nueva sin clasificar, y `LicenseAssetsSyncTest` falla si la
     copia embebida de la licencia propia o de libwebp se desincroniza de
     su fuente real. Validado en dispositivo real.
+  - **Fluidez: fps de prefiltro sube de 8 a 10, `minimize_size` sale de
+    producción (ADR-0018, reemplaza ADR-0012).** Pedido de subir a 12-15
+    fps investigó dos palancas (decode por GPU, bajar `method`) que no
+    atacan el cuello de botella real: el decode ya es plano (~2-2.3 s) sin
+    importar el fps, y `method` ya estaba en su piso (ADR-0006). La que sí
+    tenía margen era `minimize_size` — medida en contenido real, costaba
+    1.8×-1.9× el tiempo por 3-5% de tamaño, y generaba artefactos visuales
+    en WhatsApp —, así que se sacó. Con ese margen, 10 fps es el valor más
+    alto que cumple RNF-08 sin acortar el clip, en las tres duraciones del
+    requisito (12 sigue rompiendo el tope de 10 s; 15 sigue acortando por
+    tamaño). Margen del tramo de 10 s: 4.2% peor caso, el más ajustado que
+    haya llegado a producción — medido en un solo dispositivo. Un
+    prototipo de búsqueda de calidad por muestreo se investigó y se
+    descartó (más lento: la muestra rompe la redundancia temporal que
+    aprovecha el codificador de diferencias). Detalle completo en
+    `docs/desarrollo/pruebas.md`.
 
 ### Qué falta
 
