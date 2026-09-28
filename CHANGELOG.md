@@ -7,6 +7,39 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.11.0-alpha] - 2026-09-28
+
+Hallazgo de método: todas las mediciones de fps hasta ahora (ADR-0009 a
+ADR-0018) se hicieron contra un `.so` nativo de **debug** sin saberlo —
+5.9×-6.6× más lento que el binario real (`-O2`, release). Remedido
+correctamente: el fps de prefiltro sube a 20 y RF-06 baja a 5 s
+(ADR-0019, reemplaza ADR-0018).
+
+### Cambiado
+- **RF-06 baja de 10 s a 5 s**, bloqueado en `TrimScreen` (decisión de
+  producto, modelo Sticker.ly): no se puede elegir un tramo más largo, no
+  solo se trunca después.
+- **`VIDEO_PREFILTER_TARGET_FPS` sube de 10 a 20.** Medido contra
+  `assembleRelease` (no debug): a 20 fps el video de referencia usa 73.0%
+  del límite de RF-10 con calidad máxima (75) y 55.1% de margen de tiempo
+  en el peor caso; a 24 fps ya usa 86.4% — se prefirió 20 por el margen
+  de tamaño contra contenido de alto movimiento real (tipo TikTok), que
+  no se pudo validar en esta ronda. Ruido puro (peor caso) sigue
+  cumpliendo RF-12 en los tres valores probados (15/20/24): cae al piso
+  fijo de fotogramas de ADR-0016, tal como está diseñado.
+- **`release` firma con la key de debug de forma permanente** (antes no
+  tenía firma propia): permite instalar y probar el binario optimizado
+  fuera de este equipo sin un keystore de producción — no es una firma de
+  distribución. Ver `docs/desarrollo/instalacion.md` (nuevo).
+
+### Investigado
+- Confirmado que `:webp` compila sin optimizar en debug (ninguna bandera
+  `-O`, default de Clang) y con `-O2 -DNDEBUG` en release; NEON estaba
+  activo en los dos, nunca fue el problema.
+
+Detalle completo, con todas las trazas y tablas, en ADR-0019 y
+`docs/desarrollo/pruebas.md`.
+
 ## [0.10.0-alpha] - 2026-09-28
 
 Investigación de fluidez (meta 12-15 fps): ninguna de las dos palancas

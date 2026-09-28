@@ -18,25 +18,25 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.10.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.11.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
-**Rendimiento: reabierto y cerrado de nuevo, con un valor nuevo.**
-Pedido de producto — más fluidez en los animados (meta 12-15 fps) — llevó
-a investigar decodificar por GPU y bajar `method` de libwebp. Ninguna de
-las dos ataca el cuello de botella real: el decode ya es plano (~2-2.3 s)
-sin importar el fps, y `method` ya estaba en su piso (0, ADR-0006). Lo
-que sí tenía margen real era `minimize_size` — medido en contenido real,
-costaba 1.8×-1.9× el tiempo por un 3-5% de tamaño, y generaba artefactos
-visuales en WhatsApp —, así que se sacó de producción. Con ese margen
-liberado, el fps de prefiltro sube de 8 a 10 (**ADR-0018, reemplaza
-ADR-0012**): el valor más alto que cumple RNF-08 sin acortar el clip, en
-las tres duraciones del requisito. 12 fps sigue rompiendo el tope de 10 s
-incluso sin `minimize_size`; 15 fps sigue cayendo en el escalón de
-acortar duración de ADR-0016 porque no cabe en 500 KB a duración
-completa. El margen del tramo de 10 s a 10 fps (4.2% peor caso) es el más
-ajustado que haya llegado a producción — medido en un solo dispositivo,
-igual advertencia que ya dejó ADR-0012.
+**Rendimiento: hallazgo de método, RF-06 baja a 5 s, fps sube a 20.**
+Antes de subir más el fps se revisó por primera vez cómo compila `:webp`
+en cada build type: **debug compila sin optimizar (`-O0`), release con
+`-O2`** — con el mismo contenido, la codificación WebP sale 5.9×-6.6× más
+rápida en release. **Todo lo medido hasta ahora (ADR-0009 a ADR-0018) se
+había medido contra el `.so` de debug, sin saberlo** — no estaba mal el
+análisis, estaba mal el ambiente. Remedido contra release: RF-06 baja de
+10 s a 5 s (decisión de producto, modelo Sticker.ly, bloqueado en la UI)
+y el fps de prefiltro sube de 10 a 20 (**ADR-0019, reemplaza ADR-0018**).
+A 20 fps el video de referencia usa 73.0% del límite de tamaño con
+calidad máxima; se prefirió sobre 24 fps (86.4%) porque un clip real de
+alto movimiento (tipo TikTok) no se pudo validar en esta ronda — queda
+pendiente antes de considerar subir más. `release` ahora firma con la key
+de debug de forma permanente, así que probar el binario real es tan
+simple como `./gradlew assembleRelease` (ver
+`docs/desarrollo/instalacion.md`).
 
 Antes de esto, se encontró y cerró un bug de corrección distinto, en uso
 real: RF-12 fallaba de forma **garantizada** (no como caso límite raro)
@@ -232,28 +232,40 @@ segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
     runtime nueva sin clasificar, y `LicenseAssetsSyncTest` falla si la
     copia embebida de la licencia propia o de libwebp se desincroniza de
     su fuente real. Validado en dispositivo real.
-  - **Fluidez: fps de prefiltro sube de 8 a 10, `minimize_size` sale de
-    producción (ADR-0018, reemplaza ADR-0012).** Pedido de subir a 12-15
-    fps investigó dos palancas (decode por GPU, bajar `method`) que no
-    atacan el cuello de botella real: el decode ya es plano (~2-2.3 s) sin
+  - **Fluidez: `minimize_size` sale de producción, fps de prefiltro sube
+    de 8 a 10 (ADR-0018, reemplaza ADR-0012 — luego reemplazado a su vez
+    por ADR-0019, ver el punto siguiente).** Pedido de subir a 12-15 fps
+    investigó dos palancas (decode por GPU, bajar `method`) que no atacan
+    el cuello de botella real: el decode ya es plano (~2-2.3 s) sin
     importar el fps, y `method` ya estaba en su piso (ADR-0006). La que sí
     tenía margen era `minimize_size` — medida en contenido real, costaba
     1.8×-1.9× el tiempo por 3-5% de tamaño, y generaba artefactos visuales
-    en WhatsApp —, así que se sacó. Con ese margen, 10 fps es el valor más
-    alto que cumple RNF-08 sin acortar el clip, en las tres duraciones del
-    requisito (12 sigue rompiendo el tope de 10 s; 15 sigue acortando por
-    tamaño). Margen del tramo de 10 s: 4.2% peor caso, el más ajustado que
-    haya llegado a producción — medido en un solo dispositivo. Un
-    prototipo de búsqueda de calidad por muestreo se investigó y se
-    descartó (más lento: la muestra rompe la redundancia temporal que
-    aprovecha el codificador de diferencias). Detalle completo en
+    en WhatsApp —, así que se sacó. Un prototipo de búsqueda de calidad
+    por muestreo se investigó y se descartó (más lento: la muestra rompe
+    la redundancia temporal que aprovecha el codificador de diferencias).
+  - **RF-06 baja a 5 s, fps de prefiltro sube a 20 (ADR-0019, reemplaza
+    ADR-0018).** Antes de subir más el fps se revisó por primera vez cómo
+    compila `:webp` en cada build type: **toda la medición de fps hasta
+    ahora (ADR-0009 a ADR-0018) se había hecho contra el `.so` de debug
+    (sin optimizar, `-O0`), no contra release (`-O2`)** — 5.9×-6.6× más
+    lento de lo real. Remedido contra release: a 20 fps el video de
+    referencia usa 73.0% del límite de tamaño con calidad máxima (75) y
+    55.1% de margen de tiempo; se prefirió sobre 24 fps (86.4% del
+    límite) porque un clip real de alto movimiento (tipo TikTok) no se
+    pudo validar en esta ronda — dos intentos fallaron (un sustituto
+    generado por IA resultó patológicamente adverso, y el clip real
+    pedido no tenía copia local accesible). `release` firma con la key de
+    debug de forma permanente para poder probar el binario real fuera de
+    este equipo (`docs/desarrollo/instalacion.md`, nuevo). Detalle
+    completo, con todas las trazas y tablas, en ADR-0019 y
     `docs/desarrollo/pruebas.md`.
 
 ### Qué falta
 
-Rendimiento cerrado, diseño visual del recorrido completo cerrado, el bug
-de RF-12 cerrado con ADR-0016, y RNF-11 (avisos de licencia) cerrado con
-ADR-0017 (ver "Estado" arriba). Pendientes, para retomar mañana:
+Rendimiento cerrado (ADR-0019), diseño visual del recorrido completo
+cerrado, el bug de RF-12 cerrado con ADR-0016, y RNF-11 (avisos de
+licencia) cerrado con ADR-0017 (ver "Estado" arriba). Pendientes, para
+retomar mañana:
 
 1. **Los seis stickers semilla definitivos.** Los placeholders actuales
    (3 estáticos, 3 animados) son cuadrados de color plano de prueba, no
@@ -263,14 +275,21 @@ ADR-0017 (ver "Estado" arriba). Pendientes, para retomar mañana:
    ilustración de tres stickers en abanico de `AddSeedPackScreen` como
    punto de partida de estilo. Con esto cerrado quedaría resuelto lo único
    que sigue bloqueando la publicación.
-2. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
+2. **Validar el fps de prefiltro (20, ADR-0019) contra un clip real de
+   alto movimiento** (tipo TikTok: gestos, fondo en movimiento). Dos
+   intentos fallaron en la última ronda (un sustituto generado por IA
+   resultó patológicamente adverso; el clip real pedido no tenía copia
+   local accesible por `adb`) — sin ese dato, subir de 20 a 24 fps queda
+   sin confirmar (a 24 fps el contenido de referencia ya usa 86.4% del
+   límite de tamaño, contra 73.0% a 20).
+3. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
    viéndolo en vez de solo por segundos.
-3. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
+4. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
    moverlo y ampliarlo.
-4. **Cola de varios archivos** (RF-25, agregado a
+5. **Cola de varios archivos** (RF-25, agregado a
    `docs/desarrollo/requisitos.md`): seleccionar varios y editarlos uno
    tras otro.
-5. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
+6. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
    las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
    Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
    prefiltro en los tres tramos (12.1%→23.4% en el más ajustado, el clip
@@ -328,10 +347,11 @@ Decisión pendiente de mirarlos.
 
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
-  - Issue del punto 1 de arriba (stickers semilla) y de los temas de
-    rendimiento sin cerrar (WebPMux, resolución de codificación por
-    defecto).
-  - Historias de usuario del trabajo pendiente (puntos 2-4 de arriba),
+  - Issue de los puntos 1 y 2 de arriba (stickers semilla, validar fps
+    contra alto movimiento) y de los temas de rendimiento sin cerrar
+    (WebPMux, resolución de codificación por defecto, segunda fila de
+    dispositivo).
+  - Historias de usuario del trabajo pendiente (puntos 3-5 de arriba),
     para rastrearlo fuera de este README.
 
 ## Instalación

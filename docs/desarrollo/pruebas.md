@@ -2353,3 +2353,71 @@ lento podría no sostener este margen.
 Ver [ADR-0018](../../decisions/0018-fps-de-prefiltro-sube-a-10-sin-minimize-size.md).
 Reemplaza ADR-0012 (el valor de fps) y cambia el punto de ADR-0006 sobre
 `minimize_size` (ya no se usa en producción).
+
+## Fase 3 — RF-06 baja a 5s, fps sube a 20: todo lo anterior se midió contra debug (2026-09-28)
+
+Antes de fijar el fps sobre el RF-06 ya acotado a 5 s (decisión de
+producto, modelo Sticker.ly), se revisó cómo compila `:webp` en cada
+build type — no se había hecho antes. `compile_commands.json` (NDK
+r28.2.13676358, CMake 3.22.1) mostró que **debug compila sin ninguna
+bandera `-O`** (el default de Clang, `-O0`) contra **`-O2 -DNDEBUG` en
+release**; NEON está activo en los dos, nunca fue la diferencia. Con el
+mismo contenido, la sola diferencia de optimización bajó el costo de
+codificación 5.9×-6.6× (de ~2.4-3.5 s a ~0.2-0.5 s por intento a
+`method=0`). **Todo lo medido hasta ADR-0018 (y probablemente desde
+ADR-0009) se midió contra el `.so` de debug sin saberlo.**
+
+### Remedición contra release, tramo de 5s (5 corridas, invocaciones separadas)
+
+**Video real (grabación de pantalla, contenido de referencia de siempre):**
+
+| fps | mediana [rango] ms | margen peor caso | tamaño (% de 500KB) | calidad | ¿acorta? |
+|---|---|---|---|---|---|
+| 10 | 1834 [1663–1845] | 63.1% | 194 246 (38.8%) | 75 | No |
+| 12 | 1653 [1618–1760] | 64.8% | 225 024 (45.0%) | 75 | No |
+| 15 | 1893 [1837–1920] | 61.6% | 263 382 (52.7%) | 75 | No |
+| **20** | 1868 [1757–2246] | 55.1% | 365 226 (**73.0%**) | 75 | No |
+| 24 | 2043 [2004–2096] | 58.1% | 431 878 (**86.4%**) | 75 | No |
+
+Los cinco cumplen tiempo con margen amplio y calidad máxima (75, sin
+bisección) sobre este contenido. La diferencia real es cuánto del límite
+de tamaño de RF-10 van dejando libre.
+
+**Ruido puro (peor caso, mismo patrón que ADR-0006/0007/0016), encode aislado:**
+
+| fps | resultado | encode aislado |
+|---|---|---|
+| 15 | piso de 15 fotogramas, quality=0, 348 300 B, acorta a 3s | 3698 ms |
+| 20 | mismo piso, 347 492 B, acorta a 3s | 4877 ms (x5, determinístico) |
+| 24 | mismo piso, 348 840 B, acorta a 3s | 5861 ms (x5, determinístico) |
+
+RF-12 se cumple en los tres. El tiempo (encode + ~1.3-1.4 s de decode
+típico) supera el presupuesto estricto de 5000 ms en los tres, pero queda
+muy por debajo de los 20000 ms que RNF-08 permite para contenido de alta
+complejidad visual sin importar la duración.
+
+### Punto sin validar: contenido real de alto movimiento
+
+Se intentó medir también un clip real de mucho movimiento (tipo TikTok),
+sin éxito por dos motivos distintos:
+
+1. Un video generado por IA usado como sustituto resultó patológicamente
+   adverso (incluso a 10 fps caía al piso de 15 fotogramas) — no
+   representativo, descartado como dato.
+2. El clip real que motivó el pedido no tenía copia local accesible por
+   `adb` (parece un ítem de Google Fotos sin descarga local) y no se
+   pudo recuperar en esta ronda.
+
+**Por eso se eligió 20 fps y no 24**, a pesar de que 24 también cumple
+contra el contenido sí medido: a 24 fps el video real ya usa 86.4% del
+límite de tamaño, contra 73.0% a 20 — con contenido de alto movimiento
+real todavía sin validar, 20 deja más colchón. Queda pendiente repetir
+esta medición con ese contenido antes de considerar subir a 24.
+
+### Conclusión: ADR-0019 sube el fps de prefiltro de 10 a 20 y RF-06 baja a 5s
+
+Ver [ADR-0019](../../decisions/0019-fps-sube-a-20-rf-06-baja-a-5s.md).
+Reemplaza ADR-0018 (el valor de fps estaba medido contra el ambiente
+equivocado, no porque el análisis de ADR-0018 estuviera mal) y agrega la
+lección de método a CLAUDE.md: medir un presupuesto de tiempo contra
+debug da un techo mucho más bajo que el real.
