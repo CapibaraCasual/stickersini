@@ -8,11 +8,11 @@ import org.junit.Test
 class ClipRangeTest {
 
     @Test
-    fun porDefectoEsDesdeElInicioHasta10Segundos() {
+    fun porDefectoEsDesdeElInicioHasta5Segundos() {
         val clip = ClipRange.of(startMs = 0, durationMs = MAX_CLIP_DURATION_MS, sourceDurationMs = 0)
 
         assertEquals(0L, clip.startUs)
-        assertEquals(10_000_000L, clip.endUs)
+        assertEquals(5_000_000L, clip.endUs)
         assertFalse(clip.truncated)
     }
 
@@ -29,14 +29,14 @@ class ClipRangeTest {
     fun recortaLaDuracionPedidaAlTopeDeRf06() {
         val clip = ClipRange.of(startMs = 0, durationMs = 15_000, sourceDurationMs = 0)
 
-        assertEquals(10_000_000L, clip.endUs)
-        assertTrue("una duración pedida por encima de 10 s debe marcarse truncada", clip.truncated)
+        assertEquals(5_000_000L, clip.endUs)
+        assertTrue("una duración pedida por encima de 5 s debe marcarse truncada", clip.truncated)
     }
 
     @Test
     fun seCortaSiElVideoNoLlegaAlFinDelTramoPedido() {
-        // Video de 4 s, tramo pedido desde el segundo 2 por 10 s (recortado
-        // a 10 s por RF-06, pero el video ya se acaba antes de eso).
+        // Video de 4 s, tramo pedido desde el segundo 2 por 5 s (recortado
+        // a 5 s por RF-06, pero el video ya se acaba antes de eso).
         val clip = ClipRange.of(startMs = 2_000, durationMs = MAX_CLIP_DURATION_MS, sourceDurationMs = 4_000)
 
         assertEquals(2_000_000L, clip.startUs)
@@ -47,16 +47,17 @@ class ClipRangeTest {
     @Test
     fun seMarcaTruncadaSiElVideoSigueDespuesDelTramoProcesado() {
         // Bug real, medido el 2026-09-25 con una grabación de pantalla de
-        // 37 687 ms: con los valores por defecto (startMs=0,
+        // 37 687 ms: con los valores por defecto de entonces (startMs=0,
         // durationMs=10000), ni durationCapped ni cutBySource se activaban,
         // así que un video mucho más largo que el tramo procesado se
-        // reportaba como truncated=false. Este es el caso que lo prueba.
+        // reportaba como truncated=false. Este es el caso que lo prueba;
+        // ADR-0019 bajó MAX_CLIP_DURATION_MS a 5000, la lógica no cambió.
         val clip = ClipRange.of(startMs = 0, durationMs = MAX_CLIP_DURATION_MS, sourceDurationMs = 37_687)
 
-        assertEquals(10_000_000L, clip.endUs)
+        assertEquals(5_000_000L, clip.endUs)
         assertTrue(
-            "un video de 37687ms recortado a 10000ms debe marcarse truncado, aunque " +
-                "lo PEDIDO (10000ms) se haya cumplido exacto",
+            "un video de 37687ms recortado a 5000ms debe marcarse truncado, aunque " +
+                "lo PEDIDO (5000ms) se haya cumplido exacto",
             clip.truncated,
         )
     }

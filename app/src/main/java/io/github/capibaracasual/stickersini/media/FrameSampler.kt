@@ -1,7 +1,13 @@
 package io.github.capibaracasual.stickersini.media
 
-/** RF-06: el sticker no puede salir de un tramo de origen más largo que esto. */
-const val MAX_CLIP_DURATION_MS = 10_000L
+/**
+ * RF-06: el sticker no puede salir de un tramo de origen más largo que
+ * esto. Bajó de 10 s a 5 s en ADR-0019 (decisión de producto, igual que
+ * Sticker.ly): no es una sugerencia de UI, `ui/TrimScreen.kt` usa este
+ * mismo valor para acotar el `RangeSlider` — no se puede elegir un tramo
+ * más largo, no solo se trunca después.
+ */
+const val MAX_CLIP_DURATION_MS = 5_000L
 
 /**
  * fps al que [FrameSampler] conserva fotogramas decodificados antes de
@@ -20,27 +26,31 @@ const val MAX_CLIP_DURATION_MS = 10_000L
  * margen medido.
  *
  * ADR-0012 subió este valor a 8, una vez que ADR-0011 (conversión YUV→RGB
- * nativa) liberó margen de tiempo real. **ADR-0018 lo sube a 10**, tras
- * sacar la fase de `minimize_size` de `WebpAnimEncoder` (ADR-0006/ADR-0018:
- * medido en contenido real, costaba 1.8×-1.9× el tiempo de encode por un
- * 3-5% de tamaño, y generaba artefactos visuales en WhatsApp) — sin esa
- * fase, 8 fps pasó a tener 64.6% de margen contra RNF-08 en el tramo de
- * 10 s, margen de sobra para subir. 10 es el fps más alto que cumple de
- * forma confiable, contando el peor caso de 5 corridas, en las tres
- * duraciones medidas (3, 5 y 10 s): 12 fps ya rompe el tramo de 10 s en
- * 5 de 5 corridas (necesita 3 codificaciones completas para 120→95
- * fotogramas, un costo que sacar `minimize_size` no toca), y 15 fps no
- * cabe en el límite de tamaño de RF-10 a duración completa, así que
- * ADR-0016 lo acorta a ~3 s en vez de cumplir a 10 s. Un solo valor, no
- * dependiente de la duración del clip: no hay razón de producto para que
- * un sticker corto se vea peor que uno largo.
+ * nativa) liberó margen de tiempo real. ADR-0018 lo subió a 10 tras sacar
+ * la fase de `minimize_size` de `WebpAnimEncoder` (ADR-0006/ADR-0018),
+ * midiendo contra un `.so` de **debug** (sin optimizar, `-O0`) — sin
+ * saberlo en ese momento. **ADR-0019 corrige la medición (contra release,
+ * `-O2`) y sube este valor a 20, con RF-06 acotado a 5 s** (decisión de
+ * producto, igual que Sticker.ly): a 20 fps, el video real de referencia
+ * usa 73.0% del límite de RF-10 (500 KB) con calidad 75 (la más alta) y
+ * 58.1% de margen de tiempo en el peor caso de 5 corridas; el mismo
+ * contenido a 24 fps ya ocupa 86.4% del límite — se prefirió 20 por el
+ * margen de tamaño contra contenido más adverso que el de referencia
+ * (screen recording): un video de alto movimiento real (tipo TikTok) no
+ * se pudo conseguir para validar en esta ronda, así que 20 deja más
+ * colchón que 24 frente a ese caso sin confirmar. Ruido puro (el peor
+ * caso posible) sigue produciendo un resultado válido a 20 fps: cae al
+ * piso fijo de fotogramas de ADR-0016 y acorta la duración, tal como está
+ * diseñado — no un fallo nuevo.
  *
- * El margen del tramo de 10 s a 10 fps (4.2% peor caso) es el más ajustado
- * que haya llegado a producción hasta ahora — medido en un solo
- * dispositivo (Xiaomi Redmi Note 14): un teléfono más lento podría no
- * sostenerlo. Este valor no se toca sin repetir esta misma medición.
+ * **Lección de método (ver también CLAUDE.md):** toda medición de esta
+ * decisión hasta ADR-0018 se hizo contra un `.so` nativo de debug
+ * (compilado sin optimizar) — el mismo contenido codifica 5.9×-6.6× más
+ * rápido contra el `.so` de release (`-O2`, confirmado en
+ * `compile_commands.json`). Una decisión de presupuesto de tiempo
+ * (RNF-08) medida en debug da un techo mucho más bajo que el real.
  */
-const val VIDEO_PREFILTER_TARGET_FPS = 10
+const val VIDEO_PREFILTER_TARGET_FPS = 20
 
 /**
  * Decide, fotograma a fotograma y en el mismo orden en que `MediaCodec` los

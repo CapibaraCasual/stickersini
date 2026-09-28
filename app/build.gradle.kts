@@ -23,6 +23,12 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Sin keystore de release todavía (pendiente de definir antes de
+            // publicar, ver README "applicationId pendiente"): firma con la
+            // key de debug para poder instalar y probar el build real
+            // (-O2 nativo, RelWithDebInfo) fuera de este equipo. No usar
+            // para publicar — ver ADR-0019.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

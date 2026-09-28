@@ -1,7 +1,7 @@
 # Requisitos
 
 **Proyecto:** Stickersini
-**Versión del documento:** 1.2 · **Fecha:** 2026-09-26
+**Versión del documento:** 1.3 · **Fecha:** 2026-09-28
 
 Este documento es la referencia de qué debe hacer el sistema. No describe
 *cómo* se implementa: eso vive en `arquitectura.md` y en `decisions/`.
@@ -39,7 +39,7 @@ enriquecido), soporte a mensajeros distintos de WhatsApp.
 
 | ID | Requisito |
 |---|---|
-| **RF-06** | El sistema debe permitir seleccionar un tramo temporal del video de origen, con duración máxima de 10 segundos. |
+| **RF-06** | El sistema debe permitir seleccionar un tramo temporal del video de origen, con duración máxima de 5 segundos. |
 | **RF-07** | El sistema debe permitir seleccionar y reencuadrar el área cuadrada del contenido que se convertirá en sticker. |
 | **RF-08** | El sistema debe permitir eliminar el fondo del contenido o dejarlo opaco, a elección del usuario. |
 | **RF-09** | El sistema debe mostrar una vista previa del sticker resultante antes de guardarlo. |
