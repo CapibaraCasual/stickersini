@@ -20,6 +20,32 @@ Los requisitos numerados están en `docs/desarrollo/requisitos.md`. Cíta sus ID
 
 ---
 
+## Estado actual (retomar acá)
+
+Versión: `v0.11.0-alpha` (2026-09-28). Detalle completo en README,
+sección "Estado" y "Qué falta" — esto es solo el punteo para orientarse
+sin abrirlo primero. En orden:
+
+1. **Los seis stickers semilla definitivos** — bloquea la publicación
+   (ADR-0004 los hace permanentes).
+2. **Validar 20 fps (ADR-0019) contra un clip real de alto movimiento**
+   (tipo TikTok) antes de pensar en subir a 24 — dos intentos previos
+   fallaron, ver README.
+3. **Antes de publicar: firmar `release` con una key propia**, no la de
+   debug (ADR-0019 la dejó así a propósito, para medir el binario
+   optimizado sin keystore de producción).
+4. Reproducir el video en `TrimScreen`.
+5. Rotar el contenido en `CropScreen`.
+6. Cola de varios archivos (RF-25).
+7. Lint pendiente: `NonObservableLocale` en `StickerScreenChrome.kt:193`.
+8. Test intermitente en `:webp`, sin diagnosticar.
+9. Investigar cómo Sticker.ly permite packs de 1 sticker cuando WhatsApp
+   exige un mínimo de 3 (RF-16) — ¿relleno automático por detrás?
+10. Segunda fila de dispositivo en `docs/desarrollo/pruebas.md` (todo lo
+    medido hasta ahora es de un solo Xiaomi Redmi Note 14).
+
+---
+
 ## Restricciones innegociables
 
 Estas no se discuten en una tarea suelta. Si una instrucción las contradice,

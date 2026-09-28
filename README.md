@@ -66,9 +66,15 @@ ADR-0017 y "Qué funciona ya" más abajo. Con esto quedan las dos tareas que
 bloqueaban la publicación reducidas a una sola.
 
 **Lo que sigue, para retomar mañana** (detalle completo en "Qué falta"):
-los seis stickers semilla definitivos, reproducir el video en el selector
-de tramo, rotar en el encuadre, cola de varios archivos (RF-25), y la
-segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
+los seis stickers semilla definitivos (bloquea la publicación), validar
+20 fps contra un TikTok real de mucho movimiento antes de pensar en 24,
+firmar `release` con una key propia antes de publicar (hoy usa la de
+debug), reproducir el video en el selector de tramo, rotar en el
+encuadre, cola de varios archivos (RF-25), el lint `NonObservableLocale`
+pendiente en `StickerScreenChrome.kt:193`, un test intermitente en
+`:webp`, investigar cómo Sticker.ly permite packs de 1 sticker cuando
+WhatsApp exige 3, y la segunda fila de dispositivo en
+`docs/desarrollo/pruebas.md`.
 
 ### Qué funciona ya
 
@@ -239,8 +245,9 @@ segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.
     el cuello de botella real: el decode ya es plano (~2-2.3 s) sin
     importar el fps, y `method` ya estaba en su piso (ADR-0006). La que sí
     tenía margen era `minimize_size` — medida en contenido real, costaba
-    1.8×-1.9× el tiempo por 3-5% de tamaño, y generaba artefactos visuales
-    en WhatsApp —, así que se sacó. Un prototipo de búsqueda de calidad
+    1.8×-1.9× el tiempo por 3-5% de tamaño (`sticker-convert`, proyecto de
+    terceros, reporta además líneas negras en WhatsApp con este mecanismo,
+    no verificado acá) —, así que se sacó. Un prototipo de búsqueda de calidad
     por muestreo se investigó y se descartó (más lento: la muestra rompe
     la redundancia temporal que aprovecha el codificador de diferencias).
   - **RF-06 baja a 5 s, fps de prefiltro sube a 20 (ADR-0019, reemplaza
@@ -282,19 +289,39 @@ retomar mañana:
    local accesible por `adb`) — sin ese dato, subir de 20 a 24 fps queda
    sin confirmar (a 24 fps el contenido de referencia ya usa 86.4% del
    límite de tamaño, contra 73.0% a 20).
-3. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
+3. **Antes de publicar: firmar `release` con una key propia, no la de
+   debug.** ADR-0019 dejó `buildTypes.release` firmando con
+   `signingConfigs.debug` a propósito, para poder instalar y medir el
+   binario optimizado fuera de este equipo sin un keystore de producción
+   — es un atajo de desarrollo, no una firma de distribución. Generar un
+   keystore de release y cambiar la firma antes de publicar en Google
+   Play.
+4. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
    viéndolo en vez de solo por segundos.
-4. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
+5. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
    moverlo y ampliarlo.
-5. **Cola de varios archivos** (RF-25, agregado a
+6. **Cola de varios archivos** (RF-25, agregado a
    `docs/desarrollo/requisitos.md`): seleccionar varios y editarlos uno
    tras otro.
-6. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
-   las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
-   Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
-   prefiltro en los tres tramos (12.1%→23.4% en el más ajustado, el clip
-   de 10 s), pero sigue siendo el único hardware medido — un dispositivo
-   bastante más lento podría no sostenerlo.
+7. **Lint pendiente: `NonObservableLocale` en `StickerScreenChrome.kt:193`**
+   (`PackAvatar`, `Locale.getDefault()` dentro de un composable). Preexistente,
+   no tocado durante la fase de RNF-11 que lo encontró — ver
+   `androidx.compose.ui.platform.LocalLocale.current.platformLocale` como
+   reemplazo sugerido por el propio lint.
+8. **Test intermitente en `:webp`.** Reportado, sin diagnosticar todavía
+   — identificar cuál es y por qué antes de decidir si se arregla o se
+   descarta.
+9. **Investigar cómo Sticker.ly deja agregar packs de 1 sticker** cuando
+   WhatsApp exige un mínimo de 3 (RF-16) — ¿rellena el pack con stickers
+   propios por detrás hasta llegar al mínimo, o hace otra cosa? Puede
+   informar una mejora a la experiencia de creación de packs propios
+   (ADR-0014).
+10. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
+    las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
+    Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
+    prefiltro en los tres tramos (12.1%→23.4% en el más ajustado, el clip
+    de 10 s), pero sigue siendo el único hardware medido — un dispositivo
+    bastante más lento podría no sostenerlo.
 
 **Herramientas de medición conservadas para retomar el tema del
 codificador** (no producción, no se ejecutan solas): la investigación de
@@ -347,12 +374,14 @@ Decisión pendiente de mirarlos.
 
 - **Abrir en GitHub** (no bloquea el desarrollo, sí la publicación o el
   seguimiento del trabajo):
-  - Issue de los puntos 1 y 2 de arriba (stickers semilla, validar fps
-    contra alto movimiento) y de los temas de rendimiento sin cerrar
-    (WebPMux, resolución de codificación por defecto, segunda fila de
-    dispositivo).
-  - Historias de usuario del trabajo pendiente (puntos 3-5 de arriba),
-    para rastrearlo fuera de este README.
+  - Issue de los puntos 1, 2, 3, 7, 8, 9 y 10 de arriba (stickers semilla,
+    validar fps contra alto movimiento, firma de release, lint pendiente,
+    test intermitente de `:webp`, investigación de Sticker.ly, segunda
+    fila de dispositivo) y de los temas de rendimiento sin cerrar
+    (WebPMux, resolución de codificación por defecto).
+  - Historias de usuario del trabajo pendiente (puntos 4-6 de arriba:
+    reproducir video en `TrimScreen`, rotar en `CropScreen`, RF-25), para
+    rastrearlo fuera de este README.
 
 ## Instalación
 
