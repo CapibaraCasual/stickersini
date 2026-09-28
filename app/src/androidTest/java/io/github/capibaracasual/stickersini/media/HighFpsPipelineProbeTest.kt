@@ -38,9 +38,9 @@ private const val TAG = "StickersiniHighFpsProbe"
 @RunWith(AndroidJUnit4::class)
 class HighFpsPipelineProbeTest {
 
-    private fun testVideoFile(): File {
+    private fun testVideoFile(fileName: String): File {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val videoFile = File(instrumentation.targetContext.getExternalFilesDir(null), "stickersini_test_video.mp4")
+        val videoFile = File(instrumentation.targetContext.getExternalFilesDir(null), fileName)
         assumeTrue(
             "No hay video de prueba en ${videoFile.absolutePath}. Antes de correr este test: " +
                 "adb push <tu_grabacion.mp4> ${videoFile.absolutePath}",
@@ -57,7 +57,9 @@ class HighFpsPipelineProbeTest {
             ?: VIDEO_PREFILTER_TARGET_FPS
         val durationMs = InstrumentationRegistry.getArguments().getString("durationMs")?.toLongOrNull()
             ?: MAX_CLIP_DURATION_MS
-        val videoFile = testVideoFile()
+        val videoFileName = InstrumentationRegistry.getArguments().getString("videoFile")
+            ?: "stickersini_test_video.mp4"
+        val videoFile = testVideoFile(videoFileName)
         val uri = Uri.fromFile(videoFile)
 
         val trace = File(context.getExternalFilesDir(null), "high_fps_probe_trace.txt")
@@ -88,6 +90,16 @@ class HighFpsPipelineProbeTest {
                     "sizeBytes=${result.bytes.size} quality=${result.quality} frameCount=${result.frameCount} " +
                     "shortenedByMs=${result.shortenedByMs}",
             )
+
+            // Para poder comparar a simple vista si la calidad varía mucho
+            // entre fps candidatos (ver conversación de la fase): un .webp
+            // por config, nombrado por video+fps, sobrescrito en cada
+            // corrida (basta con la última para mirar el resultado).
+            val outputFile = File(
+                context.getExternalFilesDir(null),
+                "sticker_${videoFileName.removeSuffix(".mp4")}_${targetFps}fps.webp",
+            )
+            outputFile.writeBytes(result.bytes)
         } catch (e: Exception) {
             line("FALLÓ: targetFps=$targetFps error=${e.message}")
             throw e
