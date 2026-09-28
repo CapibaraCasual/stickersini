@@ -58,3 +58,69 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
 }
+
+/**
+ * Volcado de `releaseRuntimeClasspath` a un archivo de texto (una coordenada
+ * `grupo:artefacto:versión` resuelta por línea), para que
+ * `ThirdPartyLicensesCoverageTest` (RNF-11, ADR-0017) pueda comparar contra
+ * lo que de verdad se distribuye en el APK — con transitivas incluidas, no
+ * solo lo declarado a mano en `gradle/libs.versions.toml`. Se resuelve en
+ * `doLast`, no al configurar la tarea: resolver una configuración durante la
+ * configuración del build ralentiza cualquier otra tarea del módulo.
+ */
+val releaseRuntimeClasspathFile = layout.buildDirectory.file("licenses/releaseRuntimeClasspath.txt")
+
+val releaseRuntimeClasspathReport = tasks.register("releaseRuntimeClasspathReport") {
+    outputs.file(releaseRuntimeClasspathFile)
+    doLast {
+        // Se camina el resultado de resolución del grafo de dependencias
+        // (`resolutionResult`), no los artefactos (`resolvedConfiguration`
+        // / `artifactView`): esto último fuerza a Gradle a elegir una
+        // variante de artefacto para los módulos locales (:webp, :yuv) y
+        // eso es ambiguo fuera del contexto normal de compilación. Lo único
+        // que hace falta acá son las coordenadas resueltas, no los archivos.
+        val coordinates = configurations.getByName("releaseRuntimeClasspath")
+            .incoming.resolutionResult.allComponents
+            .mapNotNull { component ->
+                val id = component.id
+                if (id is org.gradle.api.artifacts.component.ModuleComponentIdentifier) {
+                    "${id.group}:${id.module}:${id.version}"
+                } else {
+                    null // Módulos del propio proyecto (:app, :webp, :yuv), no terceros.
+                }
+            }
+            .distinct()
+            .sorted()
+        val file = releaseRuntimeClasspathFile.get().asFile
+        file.parentFile.mkdirs()
+        file.writeText(coordinates.joinToString("\n"))
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(releaseRuntimeClasspathReport)
+    systemProperty("stickersini.releaseRuntimeClasspathFile", releaseRuntimeClasspathFile.get().asFile.absolutePath)
+
+    // Rutas para que LicenseAssetsSyncTest detecte si una copia vendorizada
+    // (libwebp, ADR-0005) o la licencia propia del repo cambian sin que se
+    // actualice la copia embebida en assets/ que usa la pantalla de
+    // licencias (RNF-11, ADR-0017).
+    systemProperty("stickersini.rootLicenseFile", rootProject.file("LICENSE").absolutePath)
+    systemProperty("stickersini.gplAssetFile", project.file("src/main/assets/licenses/gpl-3.0.txt").absolutePath)
+    systemProperty(
+        "stickersini.libwebpCopyingSourceFile",
+        rootProject.file("webp/src/main/cpp/third_party/libwebp/COPYING").absolutePath,
+    )
+    systemProperty(
+        "stickersini.libwebpCopyingAssetFile",
+        rootProject.file("webp/src/main/assets/licenses/libwebp-COPYING.txt").absolutePath,
+    )
+    systemProperty(
+        "stickersini.libwebpPatentsSourceFile",
+        rootProject.file("webp/src/main/cpp/third_party/libwebp/PATENTS").absolutePath,
+    )
+    systemProperty(
+        "stickersini.libwebpPatentsAssetFile",
+        rootProject.file("webp/src/main/assets/licenses/libwebp-PATENTS.txt").absolutePath,
+    )
+}

@@ -25,8 +25,11 @@ private object Routes {
     const val CONVERT = "create/convert"
     const val PACKS = "packs"
     const val PACK_DETAIL = "packs/{identifier}"
+    const val LICENSES = "licenses"
+    const val LICENSE_DETAIL = "licenses/{index}"
 
     fun packDetail(identifier: String) = "packs/$identifier"
+    fun licenseDetail(index: Int) = "licenses/$index"
 }
 
 /**
@@ -54,7 +57,20 @@ fun StickersiniNavHost(navController: NavHostController = rememberNavController(
             AddSeedPackScreen(
                 onCreateSticker = { navController.navigate(Routes.PICK) },
                 onManagePacks = { navController.navigate(Routes.PACKS) },
+                onOpenLicenses = { navController.navigate(Routes.LICENSES) },
             )
+        }
+
+        composable(Routes.LICENSES) {
+            LicensesScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicense = { index -> navController.navigate(Routes.licenseDetail(index)) },
+            )
+        }
+
+        composable(Routes.LICENSE_DETAIL, arguments = listOf(navArgument("index") { type = NavType.IntType })) { backStackEntry ->
+            val index = checkNotNull(backStackEntry.arguments?.getInt("index"))
+            ThirdPartyLicenseDetailScreen(index = index, onBack = { navController.popBackStack() })
         }
 
         composable(Routes.PACKS) {

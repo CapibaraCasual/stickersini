@@ -43,7 +43,7 @@ import kotlin.math.sin
  * acción triplicada en un lugar que ya no le corresponde.
  */
 @Composable
-fun AddSeedPackScreen(onCreateSticker: () -> Unit, onManagePacks: () -> Unit) {
+fun AddSeedPackScreen(onCreateSticker: () -> Unit, onManagePacks: () -> Unit, onOpenLicenses: () -> Unit) {
     Scaffold(
         bottomBar = {
             Column(
@@ -58,6 +58,13 @@ fun AddSeedPackScreen(onCreateSticker: () -> Unit, onManagePacks: () -> Unit) {
                 )
                 TextButton(onClick = onManagePacks) {
                     Text(text = stringResource(R.string.manage_packs_button))
+                }
+                TextButton(onClick = onOpenLicenses) {
+                    Text(
+                        text = stringResource(R.string.licenses_button),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },
