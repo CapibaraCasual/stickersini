@@ -48,6 +48,12 @@ import java.nio.ByteBuffer
  * aplicándose después del recorte, sobre el cuadrado ya chico, sin cambiar
  * qué píxeles de origen hacían falta. El cálculo del recorte en sí vive en
  * [SquareCrop], compartido con [ImageFrameDecoder].
+ *
+ * **El reescalado final a [targetSize] usa bicúbico, no bilineal**
+ * ([NativeYuvConverter.resizeBicubic], ADR-0022): reportado desde uso
+ * real que la imagen se veía notoriamente borrosa al hacer zoom (recorte
+ * más chico que 512×512, ampliado con `Bitmap.createScaledBitmap` de
+ * Android, que solo ofrece bilineal o vecino más cercano).
  */
 internal object YuvFrameConverter {
 
@@ -59,11 +65,7 @@ internal object YuvFrameConverter {
     ): Bitmap {
         val cropped = yuv420CenterSquareToArgb(image, normalizedCrop)
         val rotated = if (rotationDegrees % 360 != 0) rotateSquareBitmap(cropped, rotationDegrees) else cropped
-        return if (rotated.width == targetSize) {
-            rotated
-        } else {
-            Bitmap.createScaledBitmap(rotated, targetSize, targetSize, /* filter = */ true)
-        }
+        return NativeYuvConverter.resizeBicubic(rotated, targetSize)
     }
 
     /** Extrae planos, strides y el recorte de [image] y delega en [NativeYuvConverter] (ADR-0011). */

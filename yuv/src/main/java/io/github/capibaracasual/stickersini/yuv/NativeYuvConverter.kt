@@ -71,4 +71,39 @@ object NativeYuvConverter {
         yOffset: Int,
         size: Int,
     )
+
+    /**
+     * Reescala [source] a [targetSize]×[targetSize] con bicúbico
+     * Catmull-Rom, en C vía JNI (ADR-0022): reemplaza el bilineal de
+     * `Bitmap.createScaledBitmap` en el recorte+zoom (RF-07,
+     * `YuvFrameConverter`/`ImageFrameDecoder` en `:app`) — medido que
+     * bilineal se ve notoriamente más borroso al ampliar un recorte más
+     * chico que 512×512 (el caso típico al hacer zoom). Devuelve [source]
+     * sin tocar si ya mide [targetSize] — no tiene sentido reescalar para
+     * quedar igual.
+     */
+    fun resizeBicubic(source: Bitmap, targetSize: Int): Bitmap {
+        if (source.width == targetSize && source.height == targetSize) return source
+        val destination = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+        nativeResizeBicubic(source, destination)
+        return destination
+    }
+
+    @JvmStatic
+    private external fun nativeResizeBicubic(source: Bitmap, destination: Bitmap)
+
+    /**
+     * Suavizado gaussiano 3×3 liviano de [source] (ADR-0022, investigación):
+     * ver KDoc de `nativeLightBlur` en `yuv_jni.c`. No es una vía de
+     * producción — solo para medir si reduce el bloqueo visible en
+     * contenido adverso real a calidad muy baja.
+     */
+    fun lightBlur(source: Bitmap): Bitmap {
+        val destination = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        nativeLightBlur(source, destination)
+        return destination
+    }
+
+    @JvmStatic
+    private external fun nativeLightBlur(source: Bitmap, destination: Bitmap)
 }

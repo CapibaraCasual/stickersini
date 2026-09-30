@@ -41,11 +41,12 @@ import java.util.Locale
 /**
  * Umbral de la sugerencia (no un límite: RF-06 sigue permitiendo hasta
  * [MAX_CLIP_DURATION_MS]) de que un tramo más corto suele dar mejor
- * calidad — mismo número que el mínimo de duración antes del último
- * recurso de la escalera de degradación (ADR-0016,
- * `MIN_DURATION_MS_BEFORE_LAST_RESORT` en `:webp`): no compartido como
- * constante entre módulos a propósito, es un umbral de sugerencia de UI,
- * no una regla de negocio que deba vivir en un solo lugar.
+ * calidad — mismo número que el mínimo de duración del último-último
+ * recurso de la escalera de degradación (`MIN_DURATION_MS_BEFORE_LAST_RESORT`
+ * en `:webp`, valor de ADR-0016 que ADR-0020 conserva aunque cambió el
+ * orden de la escalera): no compartido como constante entre módulos a
+ * propósito, es un umbral de sugerencia de UI, no una regla de negocio que
+ * deba vivir en un solo lugar.
  */
 private const val SUGGESTED_MAX_TRIM_MS = 3_000f
 

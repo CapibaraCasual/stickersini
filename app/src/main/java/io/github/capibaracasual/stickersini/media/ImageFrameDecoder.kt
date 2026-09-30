@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import io.github.capibaracasual.stickersini.webp.FrameTiming
 import io.github.capibaracasual.stickersini.webp.WebpFrame
+import io.github.capibaracasual.stickersini.yuv.NativeYuvConverter
 
 /** RF-10/RF-11: el fotograma que produce esta fase ya sale al tamaño exacto de un sticker. */
 private const val STICKER_SIZE = 512
@@ -27,6 +28,10 @@ private const val STICKER_SIZE = 512
  * convertir en [YuvFrameConverter]: no decodificar más píxeles de los que
  * el recorte va a conservar. Una foto de cámara puede venir a una
  * resolución mucho mayor que los 512×512 que necesita un sticker.
+ *
+ * El reescalado final a 512×512 usa bicúbico, no bilineal
+ * ([NativeYuvConverter.resizeBicubic], ADR-0022, mismo cambio que
+ * [YuvFrameConverter] para video).
  */
 class ImageFrameDecoder {
 
@@ -48,11 +53,7 @@ class ImageFrameDecoder {
         val crop = SquareCrop.of(sampled.width, sampled.height, normalizedCrop)
         val cropped = Bitmap.createBitmap(sampled, crop.xOffset, crop.yOffset, crop.size, crop.size)
         val rotated = if (rotationDegrees % 360 != 0) rotateSquareBitmap(cropped, rotationDegrees) else cropped
-        val squareBitmap = if (rotated.width == STICKER_SIZE) {
-            rotated
-        } else {
-            Bitmap.createScaledBitmap(rotated, STICKER_SIZE, STICKER_SIZE, /* filter = */ true)
-        }
+        val squareBitmap = NativeYuvConverter.resizeBicubic(rotated, STICKER_SIZE)
 
         return WebpFrame(squareBitmap, FrameTiming.MIN_FRAME_DURATION_MS)
     }
