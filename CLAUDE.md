@@ -22,26 +22,36 @@ Los requisitos numerados están en `docs/desarrollo/requisitos.md`. Cíta sus ID
 
 ## Estado actual (retomar acá)
 
-Versión: `v0.11.0-alpha` (2026-09-28). Detalle completo en README,
-sección "Estado" y "Qué falta" — esto es solo el punteo para orientarse
-sin abrirlo primero. En orden:
+Versión: `v0.11.0-alpha` (2026-09-28), con ADR-0020/0021/0022 sin
+publicar todavía (ver CHANGELOG, "[Sin publicar]"). Detalle completo en
+README, sección "Estado" y "Qué falta" — esto es solo el punteo para
+orientarse sin abrirlo primero. En orden:
 
-1. **Los seis stickers semilla definitivos** — bloquea la publicación
+1. **Pendiente inmediato: comparar `tiktok_9` a `tiktok_12`**
+   (`/sdcard/Download/` del dispositivo de prueba) **y decidir si el
+   suavizado (denoise) ayuda contra el bloqueo visible en contenido
+   adverso, y si conviene 15 o 12 fps** — investigación de ADR-0022 sin
+   adoptar (filtro de bloques, `NativeYuvConverter.lightBlur`,
+   `TunedEncodingSweepTest`), ver `docs/desarrollo/pruebas.md`, última
+   sección.
+2. **Los seis stickers semilla definitivos** — bloquea la publicación
    (ADR-0004 los hace permanentes).
-2. **Validar 20 fps (ADR-0019) contra un clip real de alto movimiento**
-   (tipo TikTok) antes de pensar en subir a 24 — dos intentos previos
-   fallaron, ver README.
-3. **Antes de publicar: firmar `release` con una key propia**, no la de
+3. **Validar el fps de prefiltro (15, ADR-0021) contra un clip real de
+   alto movimiento** (tipo TikTok) antes de considerar tocarlo — ya hay
+   uno en el dispositivo de prueba (`DCIM/Camera/76e8198c...mp4`, usado
+   para las mediciones de `method`/`sharp_yuv` de ADR-0022), pero
+   todavía no se usó específicamente para esta validación.
+4. **Antes de publicar: firmar `release` con una key propia**, no la de
    debug (ADR-0019 la dejó así a propósito, para medir el binario
    optimizado sin keystore de producción).
-4. Reproducir el video en `TrimScreen`.
-5. Rotar el contenido en `CropScreen`.
-6. Cola de varios archivos (RF-25).
-7. Lint pendiente: `NonObservableLocale` en `StickerScreenChrome.kt:193`.
-8. Test intermitente en `:webp`, sin diagnosticar.
-9. Investigar cómo Sticker.ly permite packs de 1 sticker cuando WhatsApp
-   exige un mínimo de 3 (RF-16) — ¿relleno automático por detrás?
-10. Segunda fila de dispositivo en `docs/desarrollo/pruebas.md` (todo lo
+5. Reproducir el video en `TrimScreen`.
+6. Rotar el contenido en `CropScreen`.
+7. Cola de varios archivos (RF-25).
+8. Lint pendiente: `NonObservableLocale` en `StickerScreenChrome.kt:193`.
+9. Test intermitente en `:webp`, sin diagnosticar.
+10. Investigar cómo Sticker.ly permite packs de 1 sticker cuando WhatsApp
+    exige un mínimo de 3 (RF-16) — ¿relleno automático por detrás?
+11. Segunda fila de dispositivo en `docs/desarrollo/pruebas.md` (todo lo
     medido hasta ahora es de un solo Xiaomi Redmi Note 14).
 
 ---

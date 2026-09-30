@@ -7,6 +7,54 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+### Cambiado
+- **Escalera de degradación del sticker animado invertida (ADR-0020,
+  reemplaza ADR-0016): calidad y resolución se agotan siempre sobre el
+  fotograma y la duración completos antes de tocar fps o duración.**
+  Reportado desde uso real: con contenido complejo el sticker salía con
+  menos fluidez o recortado a 3 s aunque cupiera con más calidad — no era
+  un bug del largo del video de origen (confirmado en dispositivo real
+  que no influye), sino la escalera vieja sacrificando fotogramas/duración
+  antes de tiempo. Ahora fps (piso de 12, antes 15 fotogramas fijos) y
+  duración (mínimo 3 s, sin cambios de valor) son el último y
+  último-último recurso, no un escalón intermedio.
+- **`VIDEO_PREFILTER_TARGET_FPS` baja de 20 a 15 (ADR-0021, reemplaza
+  ADR-0019 solo en ese valor; RF-06 sigue en 5 s).** Libera margen de
+  tamaño (52.7% de RF-10 contra 73.0% a 20 fps, ya medido en ADR-0019)
+  para el nuevo escalón de maximizar calidad.
+- **Nuevo escalón: la calidad sigue subiendo hasta usar ~95% del límite
+  de RF-10, no se conforma con la primera que cabe** (ADR-0021). Medido
+  en el video de referencia: de calidad 75 (24.5% del límite) a calidad
+  93 (96.5%), sin degradar resolución ni tocar fps/duración. Contenido
+  adverso confirmado sin regresión (RNF-08 con margen amplio en los dos
+  casos medidos).
+
+- **El recorte y el zoom (RF-07) escalan con bicúbico, no bilineal
+  (ADR-0022).** Reportado desde uso real: la imagen se veía "rara"
+  comparada con otros conversores. Android no ofrece Lanczos en su API
+  pública sin RenderScript (deprecado) ni FFmpeg (descartado); se
+  implementó un resamplers bicúbico Catmull-Rom en C (nuevo en `:yuv`),
+  con prefiltro de promedio de área para reducciones mayores a ~2×
+  (evita alias en video de origen de alta resolución). `method` (0) y
+  `use_sharp_yuv` (apagado) del codificador WebP se midieron y quedan
+  sin cambios — `use_sharp_yuv` no ayudó en ninguna combinación medida
+  (ni en el video de referencia ni en un TikTok real adverso), y
+  `method=6` resultó peor (no mejor) con la búsqueda de calidad de
+  ADR-0021.
+- **La bisección de calidad pasa de entero a `Float` (ADR-0022).**
+  `WebPConfig.quality` ya es un `float` en libwebp — medido que dos
+  calidades enteras consecutivas pueden diferir 2.5×-2.6× en tamaño
+  (video de referencia, entre 90 y 91), dejando el resultado lejos del
+  objetivo de ~95% de ADR-0021 cuando el salto cae justo ahí. Confirmado
+  en dispositivo real que no es un bug de la bisección (prueba
+  exhaustiva de cada calidad entera 80-100): el salto es real, la
+  bisección ya encontraba el techo correcto. Con contenido más adverso
+  (un TikTok real), la bisección `Float` sí acerca el resultado al
+  objetivo (95.9%-99.9% de ocupación en 8 combinaciones medidas).
+
+Detalle completo, con todas las trazas y tablas, en ADR-0020, ADR-0021,
+ADR-0022 y `docs/desarrollo/pruebas.md`.
+
 ## [0.11.0-alpha] - 2026-09-28
 
 Hallazgo de método: todas las mediciones de fps hasta ahora (ADR-0009 a

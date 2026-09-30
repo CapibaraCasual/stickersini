@@ -2423,3 +2423,574 @@ Reemplaza ADR-0018 (el valor de fps estaba medido contra el ambiente
 equivocado, no porque el análisis de ADR-0018 estuviera mal) y agrega la
 lección de método a CLAUDE.md: medir un presupuesto de tiempo contra
 debug da un techo mucho más bajo que el real.
+
+## Fase 3 — reportado desde uso real: con contenido complejo el sticker sale con menos fps y recortado a 3 s (2026-09-29)
+
+Reportado desde uso real: convirtiendo videos largos o de mucho
+movimiento, el sticker sale con menos fluidez de la esperada y a veces
+recortado a 3 s, aunque se eligió un tramo de hasta 5 s. Decisión de
+producto pedida (modelo Sticker.ly): el sticker siempre dura lo elegido
+(hasta 5 s) y siempre sale a 20 fps; si no entra en 500 KB, lo único que
+cede primero es calidad, después resolución — fps y duración quedan como
+último recurso, no como un escalón intermedio (ADR-0016 los sacrificaba
+antes que agotar calidad+resolución sobre el fotograma completo).
+
+### Pregunta 1: ¿influye el largo del video de origen o el zoom del encuadre?
+
+**El largo del video de origen NO influye — confirmado en dispositivo
+real, no solo por lectura de código.** `VideoFrameDecoder.decode` solo
+decodifica `[startMs, startMs+durationMs)` (`ClipRange`) y `FrameSampler`
+muestrea en timestamps relativos al inicio del tramo
+(`clip.relativeToStart`), no al video completo — la duración total del
+archivo de origen solo se usa para clampar el fin del tramo si el video
+es más corto que lo pedido, nunca para decidir contenido o cantidad de
+fotogramas.
+
+Confirmado decodificando la **misma ventana de 5 s** desde dos archivos:
+el video de referencia completo (37.8 s, keyframe en 15.502611 s) y una
+copia recortada con `ffmpeg -ss 15.502611 -t 5 -c copy` que contiene
+*solo* esa ventana (5.2 s):
+
+| Fuente | sourceDurationMs | frameCount | quality | bytes |
+|---|---|---|---|---|
+| Video completo (37.8 s), startMs=15503 | 37687 | 99 | 75 | 122 420 |
+| Copia recortada (5.2 s), startMs=0 | 5166 | 99 | 75 | 122 826 |
+
+Diferencia de 0.3% (ruido de compresión, no una tendencia con el largo).
+Harness: `LengthZoomLadderProbeTest#corridaVideo` (`:app` androidTest,
+`-e videoFile -e startMs -e durationMs -e zoom -e label`).
+
+**El zoom (RF-07) sí influye en el resultado, y así corresponde** — es
+parte del encuadre que el usuario elige, no del video de origen. No es
+monótono (mismo patrón no explicado que ya documentó ADR-0016 para la
+resolución): recorta el cuadrado central a `sizeFraction × lado menor` y
+reescala con filtro bilineal (`SquareCrop`/`YuvFrameConverter`), así que
+cambia cuánta entropía real ve el codificador, para bien o para mal según
+el contenido:
+
+| Contenido | Sin zoom | Con zoom (`sizeFraction=0.5`) |
+|---|---|---|
+| Video de referencia (real) | 122 420 B | 54 128 B (más chico) |
+| Alto movimiento (adverso) | ver tabla siguiente | ver tabla siguiente |
+| Ruido puro (sintético) | ver tabla siguiente | ver tabla siguiente |
+
+**Conclusión: lo que se percibió como "video largo" era en realidad
+contenido complejo dentro del tramo elegido — no el largo del archivo.
+No hay bug de longitud.**
+
+### Pregunta 2: ¿alcanza calidad+resolución solas (sin tocar fps ni duración) sobre el fotograma completo de producción?
+
+Barrido de calidad (75/50/25/0) × resolución (512/384/320), **sin reducir
+fotogramas ni acortar duración**, sobre el fotograma completo que produce
+el prefiltro de producción (20 fps × hasta 5 s, ADR-0019 — 99-100
+fotogramas, no el piso reducido de ADR-0016). Harness:
+`QualityResolutionOnlySweepTest` (`:app` androidTest, una sola pasada por
+combinación — mide tamaño, no tiempo, mismo criterio que
+`DegradationLadderSweepTest`).
+
+Contenido usado: el video de referencia de siempre (real, 37.8 s, tramo
+en el keyframe de 15.503 s); el clip "de alto movimiento" generado por IA
+que ADR-0019 ya había descartado como no representativo (patológicamente
+adverso) por no conseguirse un TikTok real — se reutiliza acá justamente
+*porque* es adverso, con la salvedad explícita de que no reemplaza la
+medición pendiente con contenido real; y ruido puro (peor caso sintético,
+mismo patrón que ADR-0006/0007/0016).
+
+| Contenido | Mejor combinación sin zoom | Mejor combinación con zoom |
+|---|---|---|
+| Video largo (referencia real) | 512/q75 = 122 420 B (24%) ✅ | 512/q75 = 54 128 B (11%) ✅ |
+| Alto movimiento (adverso, IA) | 384/q0 = 547 898 B (**110%**) ❌ | 384 o 512/q0 ≈ 423-437k B (85-87%) ✅ |
+| Ruido puro (sintético) | 384/q0 = 394 852 B (79%) ✅ | 320/q0 = 628 786 B (**126%**) ❌ |
+
+**Hallazgo crítico: en 2 de las 6 combinaciones, ninguna calidad×resolución
+entra en 500 KB** (probado hasta 320; 320 no resuelve ningún caso que 384
+no resolviera ya, mismo patrón que ADR-0016). La política "nunca tocar
+fps ni duración" no puede, por sí sola, garantizar RF-12 siempre — hace
+falta un último recurso real, no solo teórico.
+
+### Diseño acordado: calidad→resolución agotadas primero; fps (piso 12) y duración (mínimo 3 s) como último y último-último recurso
+
+Confirmado con el equipo antes de implementar: sin piso de calidad (la
+calidad baja libremente hasta 0 antes de tocar fps o duración). Si ni
+calidad ni resolución alcanzan sobre el fotograma completo, el primer
+recurso es bajar fps (piso 12, nunca menos) sin tocar la duración pedida;
+solo si eso tampoco alcanza, se acorta la duración (mínimo 3 s, mismo
+valor que ADR-0016, con el aviso ya existente en la vista previa).
+
+### Corrección encontrada al implementar: bisecar calidad desde arriba en el fotograma completo rompe RNF-08
+
+Primera implementación (bisección de calidad de 75 hacia abajo, como
+ADR-0006/0007 siempre hicieron): medido en dispositivo real con el caso
+"alto movimiento sin zoom" (el que no entra en ninguna calidad×resolución,
+tabla de arriba), con un tope de tiempo generoso (60 s) para ver hasta
+dónde llegaba sin cortar:
+
+```
+intento#1  elapsedMs=0
+intento#2  elapsedMs=2089
+...
+intento#14 elapsedMs=20892   ← ya rompería el tope real de 20000ms acá
+...
+intento#23 elapsedMs=33158
+TOTAL encodeMs=34360, éxito en 34.36s — muy por encima de RNF-08 (20s)
+```
+
+**Bisecar desde arriba entre 512 y 384 sobre el fotograma completo (hasta
+100 fotogramas) cuesta hasta 7 codificaciones caras por resolución antes
+de confirmar que nada cabe ahí** — con contenido adverso real cada
+intento tarda 1-3 s, así que confirmar "512 no alcanza" y luego "384
+tampoco" antes de llegar siquiera al escalón de fps agotó el presupuesto
+completo. Con el tope real de 20 000 ms, este camino **lanza
+`WebpEncodeException` para un contenido que la implementación anterior
+(ADR-0016) sí resolvía** — una regresión de RF-12, no solo de rendimiento.
+
+**Corrección (mismo principio que ya usa `QualitySearch` en el piso de
+ADR-0007, aplicado ahora también al fotograma completo): sembrar la
+bisección por la calidad mínima (0), no desde arriba, en ambos escalones
+de resolución.** Un solo intento a calidad 0 confirma si esa resolución
+tiene alguna chance; si no la tiene, se descarta en 1 intento en vez de
+7. Si SÍ cabe, recién ahí se bisecta hacia arriba buscando algo mejor
+(con el mismo límite de margen real, `UPWARD_SEARCH_MAX_OCCUPANCY_FRACTION`,
+que ya evita seguir refinando sin necesidad).
+
+### Remedición tras la corrección (release, 5 corridas separadas, `am instrument`)
+
+**Alto movimiento sin zoom** (el caso que rompía RNF-08):
+
+| corrida | totalMs | frameCount final | quality | sizeBytes | shortenedByMs |
+|---|---|---|---|---|---|
+| 1 | 12 901 | 61 | 0 | 350 836 | 1 894 |
+| 2 | 12 535 | 61 | 0 | 350 836 | 1 894 |
+| 3 | 12 647 | 61 | 0 | 350 836 | 1 894 |
+| 4 | 12 375 | 61 | 0 | 350 836 | 1 894 |
+| 5 | 12 408 | 61 | 0 | 350 836 | 1 894 |
+
+Peor caso 12 901 ms — **35.5% de margen contra el tope de 20 000 ms**,
+determinístico entre corridas. Ya no lanza excepción: calidad+resolución
+se agotan primero (confirmado en 1-2 intentos por resolución en vez de 7),
+el piso de fps reduce a 61 fotogramas, y como con eso solo no alcanzaba,
+se acorta ~1.9 s (queda en ~3.05 s) — el orden de sacrificio pedido
+(calidad→resolución→fps→duración), no un fallo.
+
+**Ruido puro con zoom** (el otro caso que no entraba en ninguna
+calidad×resolución):
+
+| corrida | encodeMs | frameCount | quality | sizeBytes | shortenedByMs |
+|---|---|---|---|---|---|
+| 1 | 8 758 | 70 | 0 | 496 734 | 0 |
+| 2 | 8 874 | 70 | 0 | 496 734 | 0 |
+| 3 | 8 653 | 70 | 0 | 496 734 | 0 |
+| 4 | 8 675 | 70 | 0 | 496 734 | 0 |
+| 5 | 8 780 | 70 | 0 | 496 734 | 0 |
+
+Peor caso 8 874 ms — **55.6% de margen**. Aquí el piso de fps (70
+fotogramas, 14 fps sobre los 5 s completos) alcanza por sí solo:
+**la duración pedida se conserva íntegra** (`shortenedByMs=0`), mejor
+resultado que ADR-0016 (que cortaba este mismo contenido a 3 s con solo
+15 fotogramas a calidad 6).
+
+Harness: `LengthZoomLadderProbeTest` (`:app` androidTest, `-e
+hardTimeLimitMs` opcional para diagnóstico, progreso por intento vía
+`onAttempt`). Traza completa vía `adb pull`:
+```
+adb pull //sdcard/Android/data/io.github.capibaracasual.stickersini/files/length_zoom_probe_trace.txt
+```
+
+Sticker del peor caso "ruido puro con zoom" bajo la política
+calidad+resolución-solamente (sin el piso de fps, solo para ver hasta
+dónde llega ese eje): 320/calidad 0, 628 786 bytes — 126% del límite,
+puro ruido sintético (nadie convierte esto en la práctica), generado con
+`QualityResolutionOnlySweepTest` para inspección visual si hiciera falta.
+
+### Conclusión: ADR-0020 reemplaza ADR-0016
+
+Ver [ADR-0020](../../decisions/0020-escalera-de-degradacion-calidad-resolucion-primero-fps-y-duracion-ultimo-recurso.md).
+Calidad y resolución se agotan siempre sobre el fotograma completo antes
+de tocar fps o duración; fps (piso 12) y duración (mínimo 3 s, mismo
+valor de ADR-0016) pasan a ser el último y último-último recurso. Lección
+de método agregada: bisecar por el piso, no desde arriba, no es solo una
+optimización del caso ya conocido (ADR-0007) — aplica en general a
+cualquier bisección de calidad sobre un fotograma caro de codificar,
+donde cada intento de más cuesta tiempo real contra RNF-08.
+
+**Sigue pendiente, no cerrado por esta investigación:** validar con un
+clip real de alto movimiento (tipo TikTok), no el generado por IA — ver
+README, "Qué falta".
+
+## Fase 3 — fps de prefiltro baja a 15, escalón final de maximizar calidad hasta ~95% (2026-09-30)
+
+Pedido de producto, siguiente a ADR-0020 (fps y duración tienen prioridad
+sobre calidad): bajar el fps de prefiltro de 20 a 15 (sin tocar esa
+prioridad ni RF-06) y usar el margen de tamaño que eso libera para subir
+la calidad hasta ~95% del límite de RF-10, en vez de conformarse con la
+primera calidad que entra (ADR-0006 decía "mínimo trabajo necesario";
+ahora se decide gastar ese margen en calidad).
+
+### Medición, release, 5 corridas separadas (`am instrument`)
+
+**Video real de referencia** (`stickersini_test_video.mp4`, mismo tramo
+de siempre: 5 s desde el keyframe de 15.503 s, sin zoom):
+
+| | Antes (20 fps, ADR-0019/ADR-0020) | Después (15 fps, ADR-0021) |
+|---|---|---|
+| Fotogramas | 99 | 74 |
+| Calidad | 75 | **93** |
+| Resolución | 512 (nunca degrada) | 512 (nunca degrada) |
+| Tamaño | 122 420 B (24.5%) | **482 478 B (96.5%)** |
+| tiempo total (peor de 5) | ~1 900 ms | 4 505 ms |
+| Margen contra 20 000 ms | 90.5% | 77.5% |
+
+Determinístico entre las 5 corridas después del cambio (482 478 B,
+calidad 93, 74 fotogramas, sin variación). El tiempo sube (de ~1.9 s a
+~4.5 s en el peor caso) porque ahora se bisecta hacia arriba en vez de
+parar en el primer resultado que entra — sigue con margen amplio contra
+RNF-08 (77.5%).
+
+Sticker generado para comparar a simple vista, empujado a
+`/sdcard/Download/` en el dispositivo de prueba:
+- `sticker_video_real_ANTES_ADR0019.webp` (122 420 B, calidad 75)
+- `sticker_video_real_DESPUES_ADR0021.webp` (482 478 B, calidad 93)
+
+### Confirmación de que el contenido adverso no se rompe (release, 5 corridas)
+
+No pedido explícitamente, pero necesario antes de aceptar el cambio de
+fps (CLAUDE.md: un parámetro que multiplica o reduce el volumen de
+trabajo se revisa contra el peor caso, no solo el caso de referencia):
+
+**Alto movimiento** (mismo clip adverso de IA de ADR-0019/ADR-0020, sin zoom):
+
+| | Antes (20 fps) | Después (15 fps) |
+|---|---|---|
+| Fotogramas | 61 (piso de fps) | **74 (fotograma completo, ya no hace falta el piso)** |
+| Calidad | 0 | 0 |
+| Tamaño | 350 836 B (70.2%) | 438 190 B (87.6%) |
+| ¿Acorta duración? | Sí, ~1.9 s | **No** |
+| tiempo total (peor de 5) | ~12 900 ms | 9 969 ms |
+
+Con menos fotogramas por segundo que codificar, este contenido ahora
+entra en el fotograma completo sin necesitar el piso de fps ni acortar la
+duración — mejor resultado que antes, no peor.
+
+**Ruido puro con zoom** (peor caso sintético):
+
+| | Antes (20 fps) | Después (15 fps) |
+|---|---|---|
+| Fotogramas | 70 (piso de fps, de 100) | 70 (piso de fps, de 75) |
+| Calidad | 0 | 0 |
+| Tamaño | 496 734 B (99.3%) | 496 130 B (99.2%) |
+| ¿Acorta duración? | No | No |
+| tiempo total (peor de 5) | 8 874 ms | 7 283 ms |
+
+Sin cambios relevantes — el piso de fps sigue haciendo falta para este
+caso sintético (independiente de la tasa de fps de origen, el contenido
+no tiene redundancia temporal que aprovechar), pero el resultado final es
+prácticamente igual, más rápido.
+
+Harness: `LengthZoomLadderProbeTest` (`:app` androidTest, sin cambios de
+código, mismos argumentos que en la Fase anterior).
+
+### Conclusión: ADR-0021 baja el fps de prefiltro de 20 a 15 y agrega el escalón de maximizar calidad
+
+Ver [ADR-0021](../../decisions/0021-fps-de-prefiltro-baja-a-15-maximiza-calidad-hasta-95-por-ciento.md).
+Reemplaza ADR-0019 solo en el valor de fps (RF-06 en 5 s no cambia) y
+agrega un escalón nuevo dentro de ADR-0020 (calidad sigue bisecando hacia
+arriba hasta ~95% de ocupación, en vez de parar en la primera calidad que
+entra). Contenido adverso confirmado sin regresión.
+
+## Fase 3 — la imagen se ve "rara" comparada con Sticker.ly: escalado, `method` y `sharp_yuv` (2026-09-30)
+
+Reportado desde uso real: comparado con otros conversores (ffmpeg+libwebp,
+que usan fps 15 — ya igual desde ADR-0021 —, escalado lanczos, `method`
+4-6 y `use_sharp_yuv`), la imagen se ve distinta/peor. Se investigaron
+los tres ejes sin tocar fps ni duración.
+
+### Pregunta 1: ¿a qué resolución codifica el video real?
+
+Sin instrumentación previa, `WebpEncodeResult` no exponía la resolución
+usada (siempre 512×512 en el WebP final, sea cual sea la resolución de
+codificación interna — ver ADR-0020). Se agregó el campo `resolution` al
+resultado. Con el video de referencia (sin zoom): **512, nunca degrada a
+384** — calidad+resolución ya alcanzan sobre el fotograma completo en el
+escalón 1, igual que en ADR-0021.
+
+### Pregunta 2: bilineal vs. bicúbico en recorte+zoom
+
+Android no ofrece Lanczos en su API pública sin RenderScript (deprecado)
+ni FFmpeg (descartado, CLAUDE.md). Se implementó bicúbico Catmull-Rom
+(`a=-0.5`) en C vía JNI, nuevo en `:yuv`
+(`NativeYuvConverter.resizeBicubic`), separable por eje, 4×4 vecinos por
+píxel de salida — reemplaza `Bitmap.createScaledBitmap(..., filter=true)`
+en `YuvFrameConverter` (video) e `ImageFrameDecoder` (imagen). El escalón
+de resolución degradada de `WebpAnimEncoder` (384, ADR-0020) no se tocó:
+reduce entropía a propósito, no busca nitidez, fuera del alcance de lo
+pedido ("en recorte + zoom").
+
+**Corrección verificada** (`NativeYuvConverterResizeTest`, `:yuv`
+androidTest, 4 tests, sin una referencia en Kotlin que comparar píxel a
+píxel): los pesos de la convolución bicúbica suman 1 para cualquier
+desplazamiento fraccional, así que reescalar un color uniforme (hacia
+arriba 120→512 y hacia abajo 700→384) debe devolver el mismo color, con
+el redondeo de 8 bits — los 4 tests pasan.
+
+**Efecto de punta a punta, release, 5 corridas, video real (recorte
+720→512 centrado, sin zoom), method=0 sin sharp_yuv en los dos:**
+
+| Escalado | Calidad final | Tamaño | Tiempo (5 corridas, estable) |
+|---|---|---|---|
+| Bilineal (antes) | 93 | 482 478 B (96.5%) | ~4.1-4.3 s |
+| Bicúbico (después) | 90 | 331 548 B (66.3%) | ~4.7-4.9 s |
+
+Determinístico en las 5 corridas de cada escalado. No es "mejor" ni
+"peor" en tamaño por sí solo — el bicúbico produce contenido distinto
+para el bisector de calidad de ADR-0021 (menos borroso, con una curva
+calidad↔tamaño distinta), así que converge a una calidad/tamaño distinto,
+no comparable directamente en bytes. La comparación real es visual (ver
+"Generado para comparar" más abajo).
+
+### Pregunta 3: `method` 4 y 6 frente al 0 actual, y `use_sharp_yuv`
+
+Medido con el pipeline completo de producción (decodificar el video real
++ `WebpAnimEncoder`, con el bicúbico del punto 2 ya aplicado), release, 5
+corridas separadas por combinación. Harness: `MethodSharpYuvSweepTest`
+(`:app` androidTest, `-e method -e sharpYuv` además de los argumentos de
+`LengthZoomLadderProbeTest`); `measuringWebpEncoder(method, useSharpYuv)`
+nuevo en `:webp` (referencia pública puntual, mismo motivo que
+`ProductionWebpEncoder` — `NativeWebpEncoder` sigue `internal`).
+
+| method | sharp_yuv | Calidad final | Tamaño | Tiempo (5 corridas, estable) |
+|---|---|---|---|---|
+| **0** | No | 90 | 331 548 B (66.3%) | ~4.7-4.9 s |
+| 0 | Sí | 90 | 351 738 B (70.3%) | ~9.5-9.6 s |
+| 4 | No | 90 | 275 604 B (55.1%) | ~8.4-8.6 s |
+| 4 | Sí | 90 | 290 770 B (58.2%) | ~13.1-13.3 s |
+| **6** | No | **75** | 81 902 B (16.4%) | ~14.6-14.7 s |
+| 6 | Sí | 75 | 83 568 B (16.7%) | ~14.9-15.0 s |
+
+Determinístico en las 5 corridas de cada combinación (sin variación).
+
+- **`use_sharp_yuv` no ayuda en ninguna combinación**: misma calidad
+  final, tamaño más grande (+5.5% a +6.1%) y 1.4×-2.1× más tiempo, en las
+  tres configuraciones de `method`. Contradice la hipótesis inicial (que
+  `sharp_yuv` evitaría artefactos de color en bordes de texto/UI) al
+  menos en el criterio de tamaño/calidad final — falta la comparación
+  visual para saber si de todas formas se ve mejor a pesar de pesar más.
+- **`method=4` comprime mejor a igual calidad** (275 604 B contra
+  331 548 B, -16.9%) al casi doble de tiempo (8.5 s contra 4.8 s) — con
+  57.5% de margen contra RNF-08 igual, el tiempo no lo descarta.
+- **Hallazgo inesperado: `method=6` es peor, no mejor, con la búsqueda de
+  ADR-0021 (subir calidad hasta ~95%).** Converge a calidad 75 (contra 90
+  de method 0 y 4), dejando 83.6% del tamaño sin usar, y es el más lento
+  (~14.6 s). Causa probable: `method` alto cambia más que la eficiencia
+  de compresión (filtrado, cuadro-clave-vs-diferencia), pudiendo dejar un
+  salto grande entre la calidad que cabe y la siguiente que se prueba —
+  no investigado más a fondo, el dato alcanza para no adoptarlo.
+
+### Generado para comparar con el dedo
+
+7 stickers del video real, empujados a `/sdcard/Download/` del
+dispositivo de prueba (prefijo `comparar_`): bilineal (antes de este
+ADR), bicúbico method=0, bicúbico method=0+sharp_yuv, method=4,
+method=4+sharp_yuv, method=6, method=6+sharp_yuv.
+
+### Dos dudas planteadas antes de aceptar
+
+**¿El salto de calidad 90→91 (method 0/4) es un bug de la bisección?**
+No — verificado probando cada calidad de 80 a 100 de forma directa,
+sobre el mismo fotograma real (`QualityCurveProbeTest`, nuevo, `:app`
+androidTest):
+
+| Calidad | method=0 | method=4 |
+|---|---|---|
+| 89 | 316 428 B | 261 430 B |
+| **90** | **331 548 B (66.3%)** | **275 604 B (55.1%)** |
+| **91** | **854 972 B (171%)** | **693 634 B (139%)** |
+| 100 | 2 159 186 B | 1 430 880 B |
+
+Salto real de 2.5×-2.6× entre 90 y 91 en los dos `method` — no gradual.
+La traza de la bisección (`LengthZoomLadderProbeTest`) confirma que sí
+prueba el valor exacto en el límite (75→88→94→91→89→90, 6 intentos): no
+queda ninguna calidad entera entre 90 y 91 sin probar. El techo es real,
+no un corte prematuro por tiempo o por un tope de calidad — probablemente
+libwebp cambia de régimen de cuantización cerca de esa calidad, con un
+costo de tamaño desproporcionado (no confirmado a fondo, no hacía falta
+para descartar el bug). No se "arregló" nada porque no había nada que
+arreglar; la tabla de arriba es la remedición pedida.
+
+Aparte: `method=6` **crasheó** al repetir esta curva completa (21
+codificaciones seguidas en un proceso) — se detuvo en calidad 86. La
+escalera de producción nunca hace 21 seguidas (como mucho 6-8), así que
+no es una preocupación de producción — coherente con CLAUDE.md sobre no
+encadenar muchas conversiones en un proceso.
+
+**¿El bicúbico tiene soporte fijo (alias en reducciones grandes)?** Sí,
+corregido: se agregó un prefiltro de promedio de área 2×2 en pasadas
+sucesivas cuando la reducción supera ~2× en cualquier eje, antes del
+bicúbico de 4 taps (alternativa explícitamente ofrecida al soporte
+variable). Verificado con un patrón de la frecuencia más alta posible
+(rayas de 1 píxel alternadas), reducido 4× (2048→512): sin el prefiltro,
+el bicúbico puede dar blanco o negro casi puro según la fase del muestreo
+(alias); con el prefiltro, converge a gris medio (`~127`) — test nuevo,
+`reduccionGrandePromediaEnVezDeAliasear` (`NativeYuvConverterResizeTest`,
+5 tests en total). **Sin efecto en el video de referencia**: su recorte
+(720→512) reduce solo 1.4×, por debajo del umbral de 2× — remedido tras
+la corrección, mismo resultado exacto (331 548 B, calidad 90).
+
+### Conclusión: ADR-0022 adopta bicúbico en recorte+zoom (con prefiltro de área); `method` y `sharp_yuv` quedan sin cambios
+
+Ver [ADR-0022](../../decisions/0022-escalado-bicubico-en-recorte-y-zoom-method-y-sharp-yuv-medidos-sin-cambios.md).
+
+## Fase 3 — bisección de calidad con `Float`, adoptada a producción (2026-09-30)
+
+El hallazgo del salto 90→91 (arriba) expuso el motivo por el que
+`method`/`sharp_yuv` no acercaban el resultado al 95% de ADR-0021 con
+más precisión: bisecar solo calidades enteras deja el resultado
+atrapado del lado seguro de un salto grande, sin poder probar valores
+intermedios. `WebPConfig.quality` ya es un `float` en libwebp — bisecarlo
+como tal no cuesta más (mismo número de codificaciones), solo cambia por
+dónde caen los puntos intermedios.
+
+**Decisión: adoptado a producción**, no solo investigación.
+`SingleShotWebpEncoder.encode`, `QualitySearch` (nuevo:
+`CONVERGENCE_EPSILON = 0.05`, converge por rango en vez de por igualdad
+entera) y `WebpAnimEncoder` pasan a `Float` de punta a punta
+(`WebpEncodeResult.quality` también). Migración con impacto acotado: el
+campo `quality` no se consumía en ningún otro lugar de la app (ni UI ni
+`ConvertPreviewSaveScreen`) fuera de `:webp` — confirmado por búsqueda
+antes de migrar.
+
+**Confirmado en dispositivo real, release, 3 corridas, video de
+referencia** (`LengthZoomLadderProbeTest`, sin cambios de harness — ya
+usa `ProductionWebpEncoder`, que ahora bisecta `Float` internamente):
+
+| corrida | calidad | tamaño | tiempo total |
+|---|---|---|---|
+| 1 | 90.234375 | 334 138 B (66.8%) | 14 165 ms |
+| 2 | 90.234375 | 334 138 B (66.8%) | 13 766 ms |
+| 3 | 90.234375 | 334 138 B (66.8%) | 13 576 ms |
+
+Determinístico. Calidad **fraccionaria de verdad** (90.234375, no un
+entero redondeado) — confirma que la bisección `Float` está activa en el
+camino de producción real, no solo en el harness de investigación.
+Resultado similar al de la bisección entera previa (90/331 548 B) porque
+este contenido no tiene el problema del salto grande justo donde
+converge — el beneficio real se ve en contenido más adverso: el TikTok
+real usado en la sección siguiente llegó a 95.6%-99.9% de ocupación con
+`Float`, donde un salto de calidad entera lo habría dejado mucho más
+lejos del objetivo.
+
+**Tests actualizados para `Float` en las tres capas** (`QualitySearchTest`,
+4 tests; `WebpAnimEncoderTest`, 11 tests, con tolerancia `2 × CONVERGENCE_EPSILON`
+en las aserciones de calidad en vez de igualdad exacta, dado que el
+dominio ya es continuo) y en los harnesses de medición que implementan
+`SingleShotWebpEncoder` (`WebpAnimEncoderPerformanceTest`,
+`ResolutionFpsSweepTest`, `VideoImportPerformanceTest`,
+`SampledQualitySearchProbeTest`, y las llamadas directas a
+`NativeWebpEncoder.encode` en `StaticWebpContainerOverheadTest`/
+`WebpAnimEncoderInstrumentedTest`) — todos verdes.
+
+Ver [ADR-0022](../../decisions/0022-escalado-bicubico-en-recorte-y-zoom-method-y-sharp-yuv-medidos-sin-cambios.md), punto 3.
+
+## Fase 3 — TikTok real: method/sharp_yuv, bilineal vs bicúbico, con bisección Float (2026-09-30)
+
+Todo lo anterior (ADR-0022, video de referencia) es una grabación de
+pantalla casi estática — no representativo del contenido adverso real
+que motivó la pregunta original ("la imagen se ve rara"). Se identificó
+un video real descargado al dispositivo de prueba (no la grabación de
+pantalla de siempre): `DCIM/Camera/76e8198c442c09a8ce5313e0457a3b8e.mp4`
+(576×576, 25.7 s, h264/30fps, guardado 2026-09-28 23:06 — nombre hash,
+aislado por 2 semanas del resto de archivos de la cámara, confirmado con
+el usuario antes de usarlo). Tramo usado: 5 s desde el inicio
+(`startMs=0`), sin zoom.
+
+### Medición: 8 combinaciones (bilineal/bicúbico × method 0/4 × sharp_yuv sí/no), bisección Float
+
+Harness: `FloatQualitySharpYuvSweepTest` (`:app` androidTest, la misma
+bisección Float que ya usa producción desde la sección anterior, pero
+llamando a `measuringWebpEncoderFloat` para fijar `method`/`sharp_yuv` —
+`ProductionWebpEncoder` en producción siempre usa `method=0`/sin
+`sharp_yuv`, ver ADR-0022). Una corrida por combinación (determinístico,
+sin variación entre corridas repetidas en mediciones anteriores de este
+mismo contenido — no se repitió 5 veces por no ser una decisión de
+presupuesto de tiempo nueva, ya validado el método en la sección
+anterior).
+
+| Escalado | method | sharp_yuv | Calidad | Tamaño | Ocupación | Tiempo |
+|---|---|---|---|---|---|---|
+| Bicúbico | 0 | No | 2.344 | 479 304 B | 95.9% | 11.8 s |
+| Bicúbico | 0 | Sí | 2.344 | 480 736 B | 96.1% | 35.3 s |
+| Bicúbico | 4 | No | 12.500 | 496 782 B | 99.4% | 16.0 s |
+| Bicúbico | 4 | Sí | 12.500 | 499 372 B | 99.9% | 33.0 s |
+| Bilineal | 0 | No | 3.125 | 491 618 B | 98.3% | 8.0 s |
+| Bilineal | 0 | Sí | 3.125 | 494 384 B | 98.9% | 24.4 s |
+| Bilineal | 4 | No | 12.500 | 484 062 B | 96.8% | 18.7 s |
+| Bilineal | 4 | Sí | 12.500 | 485 506 B | 97.1% | 29.4 s |
+
+**La calidad final cae a un solo dígito o poco más (2.3-12.5 de 100)** —
+muy por debajo del video de referencia (90+), confirma que este contenido
+es bastante más adverso, como se esperaba de un video real de alto
+movimiento. **La bisección Float sí ayuda con este contenido**: todas las
+combinaciones llegan a 95.9%-99.9% de ocupación (contra los saltos que
+una bisección entera habría dejado sin cerrar, ver la sección de arriba).
+
+**`sharp_yuv` cuesta mucho más con contenido real adverso que con el de
+referencia**: 2.1×-4.1× más tiempo (contra 1.4×-2.1× en el video de
+referencia), sin cambiar la calidad final en ninguna combinación — mismo
+veredicto que con el video de referencia (no ayuda), con un costo de
+tiempo todavía mayor en este contenido.
+
+**Nota de método**: estos tiempos (hasta 35.3 s) son de la bisección
+`Float` aislada (esta clase, sin pasar por la escalera de producción,
+que también degradaría resolución o el piso de fps para contenido tan
+adverso) — no representan lo que tardaría la app real con este
+contenido, que cortaría antes por RNF-08.
+
+Stickers generados en `/sdcard/Download/` (prefijo `tiktok_1` a
+`tiktok_8`) para comparación visual.
+
+## Fase 3 — experimentos sin decidir: filtro de bloques, suavizado, 12 fps (2026-09-30, NO adoptados)
+
+Reportado viendo los 8 stickers de la sección anterior: fluidos, pero
+"pixelados en bloques", sobre todo en los bordes del personaje en
+movimiento — esperable a calidad 2-15 de 100. Se probaron tres paliativos
+con `method=4` (el que dio más calidad en la sección anterior), sobre el
+mismo TikTok:
+
+Harness: `TunedEncodingSweepTest` (`:app` androidTest, `-e autofilter -e
+filterStrength -e denoise -e fps`), con `NativeYuvConverter.lightBlur`
+nuevo (suavizado gaussiano 3×3, `:yuv`) para el punto 2.
+
+**Valores por defecto de libwebp, nunca antes configurados explícitamente**
+(`WebPConfigInit`, preset `WEBP_PRESET_DEFAULT`): `sns_strength=50`,
+`filter_strength=60`, `filter_sharpness=0`, `autofilter=0` (apagado).
+
+| # | Combinación | Calidad | Tamaño | Ocupación | Tiempo |
+|---|---|---|---|---|---|
+| 9 | `autofilter=on`, `filter_strength=100` | 12.5 | 496 782 B | 99.4% | 16.9 s |
+| 10 | suavizado 3×3 (denoise) | 15.6 | 477 820 B | 95.6% | 21.6 s |
+| 11 | mejor de 9+10, 15 fps | 15.6 | 477 820 B | 95.6% | 24.0 s |
+| 12 | mejor de 9+10, **12 fps** | 31.3 | 493 842 B | 98.8% | 16.9 s |
+
+**Hallazgo: el filtro de bloques de libwebp (`autofilter`/`filter_strength`)
+no cambia el tamaño comprimido** — #10 (solo denoise) y #11 (denoise +
+autofilter + filter_strength=100) dan bytes y calidad **idénticos**. Es
+coherente con cómo funciona ese filtro: es principalmente un ajuste que
+aplica el *decodificador* al mostrar la imagen (suaviza bordes de
+macrobloque), no algo que el codificador comprima de forma distinta — así
+que el tamaño no es la métrica que lo delata, hace falta la comparación
+visual.
+
+**Bajar a 12 fps (#12) es lo que más subió la calidad disponible**: de
+15.6 a 31.3, porque menos fotogramas (60 contra 75) dejan más presupuesto
+de tamaño por fotograma.
+
+Stickers generados en `/sdcard/Download/` (`tiktok_9` a `tiktok_12`).
+
+### Pendiente explícito: NO adoptado a producción
+
+**Ninguno de estos tres ejes (filtro de bloques, denoise, 12 fps) se
+adoptó** — quedan como harnesses de investigación
+(`TunedEncodingSweepTest`, `NativeYuvConverter.lightBlur`) sin decisión
+tomada. Pendiente: comparación visual de `tiktok_9` a `tiktok_12` (en
+`/sdcard/Download/` del dispositivo de prueba) para decidir si el
+suavizado ayuda de verdad y si el cambio de fluidez de 15 a 12 fps vale
+la calidad ganada — ver README, "Qué falta".

@@ -21,6 +21,46 @@ de internet.
 En desarrollo. Versión actual: `0.11.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
+**Escalado bicúbico en recorte y zoom; `method`/`sharp_yuv` medidos, sin
+cambios (ADR-0022).** Reportado desde uso real: la imagen se veía "rara"
+comparada con otros conversores (ffmpeg+libwebp). Android no ofrece
+Lanczos en su API pública sin RenderScript (deprecado) ni FFmpeg
+(descartado, CLAUDE.md); se implementó un resamplers bicúbico Catmull-Rom
+en C, nuevo en `:yuv`, que reemplaza el bilineal de `Bitmap.createScaledBitmap`
+en el recorte+zoom (video e imagen). Medido con el video real, release, 5
+corridas: `method=6` resultó **peor**, no mejor, con la búsqueda de
+calidad de ADR-0021 (converge a calidad 75 en vez de 90, deja 83.6% del
+límite sin usar) — hallazgo inesperado que evitó adoptarlo sin medir.
+`use_sharp_yuv` no ayudó en ninguna combinación (mismo resultado, más
+grande y más lento). `method` queda en 0 y `sharp_yuv` apagado.
+
+**Fps de prefiltro baja a 15, nuevo escalón de maximizar calidad
+(ADR-0021, reemplaza ADR-0019 solo en el valor de fps).** Con la
+prioridad de fps/duración ya fijada por ADR-0020, bajar el fps de 20 a 15
+libera margen de tamaño (52.7% del límite de RF-10 contra 73.0%, ya
+medido en ADR-0019) — margen que ahora se usa para subir la calidad hasta
+~95% del límite en vez de conformarse con la primera que entra. Medido
+en el video de referencia: de calidad 75 (24.5% del límite) a calidad 93
+(96.5%), sin degradar resolución ni tocar fps/duración, con margen amplio
+contra RNF-08 (77.5% en el peor de 5 corridas). Contenido adverso
+confirmado sin regresión — el clip de alto movimiento ahora entra en el
+fotograma completo sin necesitar el piso de fps, una mejora.
+
+**Escalera de degradación invertida (ADR-0020, reemplaza ADR-0016).**
+Reportado desde uso real: con contenido complejo el sticker salía con
+menos fluidez o recortado a 3 s aunque se hubiera elegido un tramo más
+largo. Confirmado en dispositivo real que el largo del video de origen
+**no** influye (el prefiltro solo decodifica el tramo elegido) — era la
+escalera vieja sacrificando fotogramas y duración antes de agotar
+calidad y resolución. Ahora calidad y resolución ceden primero, siempre
+sobre el fotograma y la duración completos; fps (piso de 12, ya no un
+piso fijo de fotogramas) y duración (mínimo 3 s) quedan como último y
+último-último recurso. Al medir se encontró y corrigió una regresión:
+bisecar calidad desde arriba sobre el fotograma completo tardaba hasta
+34 s en el peor caso adverso, rompiendo RNF-08 — sembrar la bisección
+por la calidad mínima (mismo truco que ya usaba el piso de ADR-0007) lo
+baja a 8-13 s, con margen real medido (5 corridas, release).
+
 **Rendimiento: hallazgo de método, RF-06 baja a 5 s, fps sube a 20.**
 Antes de subir más el fps se revisó por primera vez cómo compila `:webp`
 en cada build type: **debug compila sin optimizar (`-O0`), release con
@@ -65,9 +105,37 @@ agrupadas por publicador) y libwebp/Fredoka/Karla vendorizados — ver
 ADR-0017 y "Qué funciona ya" más abajo. Con esto quedan las dos tareas que
 bloqueaban la publicación reducidas a una sola.
 
+**Bisección de calidad con `Float`, adoptada a producción (ADR-0022).**
+El salto de tamaño medido entre calidad entera 90 y 91 (2.5×-2.6×, ver
+arriba) no era un bug de la búsqueda — confirmado probando cada calidad
+de 80 a 100 de forma directa — pero exponía que bisecar solo enteros
+deja resultados lejos del objetivo de ~95% cuando el salto cae justo ahí.
+`WebPConfig.quality` ya es un `float` en libwebp: bisecarlo como tal no
+cuesta más y no requirió tocar la UI (el campo no se consumía fuera de
+`:webp`). Confirmado en dispositivo real: calidad final `90.234375` (no
+un entero, la bisección fraccionaria está activa de verdad), 66.8% del
+límite, determinístico en 3 corridas. Con un TikTok real (más adverso que
+el video de referencia, calidad final de un solo dígito) la ganancia se
+nota más: 95.9%-99.9% de ocupación en 8 combinaciones medidas.
+
+**Reportado viendo los stickers de un TikTok real: se ven "pixelados en
+bloques" en los bordes de un personaje en movimiento (calidad 2-15 de
+100).** Se investigaron tres paliativos con `method=4` — filtro de
+bloques de libwebp (`autofilter`/`filter_strength=100`), un suavizado
+gaussiano 3×3 antes de codificar, y bajar de 15 a 12 fps — generados como
+`tiktok_9` a `tiktok_12` en `/sdcard/Download/` del dispositivo de
+prueba. Hallazgo: el filtro de bloques de libwebp no cambió el tamaño
+comprimido en nada (es un ajuste que aplica sobre todo el decodificador
+al mostrar la imagen); bajar a 12 fps fue lo que más subió la calidad
+disponible (15.6→31.3). **Ninguno de los tres se adoptó** — queda
+pendiente decidir con la comparación visual.
+
 **Lo que sigue, para retomar mañana** (detalle completo en "Qué falta"):
-los seis stickers semilla definitivos (bloquea la publicación), validar
-20 fps contra un TikTok real de mucho movimiento antes de pensar en 24,
+comparar `tiktok_9` a `tiktok_12` y decidir denoise/12 fps (pendiente
+inmediato, de la sesión de hoy), los seis stickers semilla definitivos
+(bloquea la publicación), validar el fps de prefiltro (15, ADR-0021) y
+el escalón de maximizar calidad contra ese mismo TikTok real (ya
+disponible en el dispositivo, sin usar todavía para esto puntualmente),
 firmar `release` con una key propia antes de publicar (hoy usa la de
 debug), reproducir el video en el selector de tramo, rotar en el
 encuadre, cola de varios archivos (RF-25), el lint `NonObservableLocale`
@@ -269,12 +337,23 @@ WhatsApp exige 3, y la segunda fila de dispositivo en
 
 ### Qué falta
 
-Rendimiento cerrado (ADR-0019), diseño visual del recorrido completo
-cerrado, el bug de RF-12 cerrado con ADR-0016, y RNF-11 (avisos de
-licencia) cerrado con ADR-0017 (ver "Estado" arriba). Pendientes, para
-retomar mañana:
+Rendimiento cerrado (ADR-0019, fps rebajado después por ADR-0021),
+diseño visual del recorrido completo cerrado, el bug de RF-12 cerrado con
+ADR-0016 (orden de sacrificio invertido después con ADR-0020: calidad y
+resolución ceden primero, fps y duración quedan de último recurso;
+ADR-0021 agrega maximizar calidad hasta ~95% de RF-10; ADR-0022 pasa el
+recorte+zoom a escalado bicúbico y la bisección de calidad a `Float`), y
+RNF-11 (avisos de licencia) cerrado con ADR-0017 (ver "Estado" arriba).
+Pendientes, para retomar mañana:
 
-1. **Los seis stickers semilla definitivos.** Los placeholders actuales
+1. **Pendiente inmediato: comparar `tiktok_9` a `tiktok_12`**
+   (`/sdcard/Download/` del dispositivo de prueba) **y decidir si el
+   suavizado (denoise) ayuda contra el bloqueo visible en contenido
+   adverso, y si conviene 15 o 12 fps.** Investigación de ADR-0022 sin
+   adoptar todavía (filtro de bloques de libwebp, `NativeYuvConverter.lightBlur`,
+   `TunedEncodingSweepTest`) — detalle completo en
+   `docs/desarrollo/pruebas.md`, última sección.
+2. **Los seis stickers semilla definitivos.** Los placeholders actuales
    (3 estáticos, 3 animados) son cuadrados de color plano de prueba, no
    material de marca — ADR-0004 los hace permanentes, así que hay que
    reemplazarlos antes de publicar. La dirección visual ya elegida
@@ -282,41 +361,41 @@ retomar mañana:
    ilustración de tres stickers en abanico de `AddSeedPackScreen` como
    punto de partida de estilo. Con esto cerrado quedaría resuelto lo único
    que sigue bloqueando la publicación.
-2. **Validar el fps de prefiltro (20, ADR-0019) contra un clip real de
-   alto movimiento** (tipo TikTok: gestos, fondo en movimiento). Dos
-   intentos fallaron en la última ronda (un sustituto generado por IA
-   resultó patológicamente adverso; el clip real pedido no tenía copia
-   local accesible por `adb`) — sin ese dato, subir de 20 a 24 fps queda
-   sin confirmar (a 24 fps el contenido de referencia ya usa 86.4% del
-   límite de tamaño, contra 73.0% a 20).
-3. **Antes de publicar: firmar `release` con una key propia, no la de
+3. **Validar el fps de prefiltro (15, ADR-0021) y el escalón de
+   maximizar calidad contra un clip real de alto movimiento** (tipo
+   TikTok: gestos, fondo en movimiento). Ya hay uno en el dispositivo de
+   prueba (`DCIM/Camera/76e8198c...mp4`, usado hoy para las mediciones de
+   `method`/`sharp_yuv`/filtro de bloques de ADR-0022 — ver punto 1 de
+   esta lista), pero todavía no se usó específicamente para esta
+   validación del valor de fps en sí.
+4. **Antes de publicar: firmar `release` con una key propia, no la de
    debug.** ADR-0019 dejó `buildTypes.release` firmando con
    `signingConfigs.debug` a propósito, para poder instalar y medir el
    binario optimizado fuera de este equipo sin un keystore de producción
    — es un atajo de desarrollo, no una firma de distribución. Generar un
    keystore de release y cambiar la firma antes de publicar en Google
    Play.
-4. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
+5. **Reproducir el video en `TrimScreen`**, para elegir el fragmento
    viéndolo en vez de solo por segundos.
-5. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
+6. **Rotar el contenido durante el encuadre en `CropScreen`**, además de
    moverlo y ampliarlo.
-6. **Cola de varios archivos** (RF-25, agregado a
+7. **Cola de varios archivos** (RF-25, agregado a
    `docs/desarrollo/requisitos.md`): seleccionar varios y editarlos uno
    tras otro.
-7. **Lint pendiente: `NonObservableLocale` en `StickerScreenChrome.kt:193`**
+8. **Lint pendiente: `NonObservableLocale` en `StickerScreenChrome.kt:193`**
    (`PackAvatar`, `Locale.getDefault()` dentro de un composable). Preexistente,
    no tocado durante la fase de RNF-11 que lo encontró — ver
    `androidx.compose.ui.platform.LocalLocale.current.platformLocale` como
    reemplazo sugerido por el propio lint.
-8. **Test intermitente en `:webp`.** Reportado, sin diagnosticar todavía
+9. **Test intermitente en `:webp`.** Reportado, sin diagnosticar todavía
    — identificar cuál es y por qué antes de decidir si se arregla o se
    descarta.
-9. **Investigar cómo Sticker.ly deja agregar packs de 1 sticker** cuando
+10. **Investigar cómo Sticker.ly deja agregar packs de 1 sticker** cuando
    WhatsApp exige un mínimo de 3 (RF-16) — ¿rellena el pack con stickers
    propios por detrás hasta llegar al mínimo, o hace otra cosa? Puede
    informar una mejora a la experiencia de creación de packs propios
    (ADR-0014).
-10. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
+11. **Segunda fila de dispositivo en `docs/desarrollo/pruebas.md`.** Todas
     las mediciones de rendimiento hasta ahora son de un único Xiaomi Redmi
     Note 14. El decode paralelo (ADR-0015) mejoró el margen de 8 fps de
     prefiltro en los tres tramos (12.1%→23.4% en el más ajustado, el clip
