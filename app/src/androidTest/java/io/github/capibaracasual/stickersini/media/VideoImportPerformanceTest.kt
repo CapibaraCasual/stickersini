@@ -56,7 +56,7 @@ private class MeasuringEncoder(
     var callCount = 0
         private set
 
-    override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray {
+    override fun encode(frames: List<WebpFrame>, quality: Float, minimizeSize: Boolean): ByteArray {
         callCount++
         val attemptNumber = callCount
         val start = System.nanoTime()
@@ -131,7 +131,7 @@ class VideoImportPerformanceTest {
             val encodeStart = System.nanoTime()
             var outcome: String
             var sizeBytes: Int? = null
-            var quality: Int? = null
+            var quality: Float? = null
             var frameCount: Int? = null
             try {
                 val encodeResult = WebpAnimEncoder(singleShotEncoder = measuring).encode(importResult.frames)

@@ -83,7 +83,7 @@ class WebpAnimEncoderInstrumentedTest {
         )
 
         try {
-            NativeWebpEncoder.encode(frames, quality = 80, minimizeSize = false)
+            NativeWebpEncoder.encode(frames, quality = 80f, minimizeSize = false)
             throw AssertionError("se esperaba WebpEncodeException por tamaños distintos")
         } catch (expected: WebpEncodeException) {
             // esperado

@@ -1,6 +1,6 @@
 # ADR-0019: El fps de prefiltro sube a 20 y RF-06 baja a 5 s (reemplaza ADR-0018)
 
-- Estado: Aceptado e implementado
+- Estado: Aceptado e implementado — Superseded parcialmente por [ADR-0021](0021-fps-de-prefiltro-baja-a-15-maximiza-calidad-hasta-95-por-ciento.md) (solo el valor de fps, que baja de 20 a 15; RF-06 en 5 s no cambia)
 - Fecha: 2026-09-28
 
 ## Contexto

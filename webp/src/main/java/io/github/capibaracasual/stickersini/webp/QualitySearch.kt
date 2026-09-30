@@ -1,16 +1,22 @@
 package io.github.capibaracasual.stickersini.webp
 
 /**
- * Busca por bisección la mayor calidad de codificación (0-100) cuyo
- * resultado no supere [targetSizeBytes]. Asume que el tamaño de salida
- * crece de forma monótona con la calidad, cierto en la práctica para el
- * codificador lossy de libwebp: a más calidad, igual o más bytes, nunca
- * menos.
+ * Busca por bisección la mayor calidad de codificación (0-100, `Float` —
+ * ver ADR-0022: `WebPConfig.quality` es un `float` de verdad, y medido en
+ * dispositivo real que dos calidades enteras consecutivas pueden diferir
+ * 2.5×-2.6× en tamaño, así que bisecar solo enteros deja resultados lejos
+ * del objetivo de ocupación de [WebpAnimEncoder] cuando el salto cae
+ * justo ahí) cuyo resultado no supere [targetSizeBytes]. Asume que el
+ * tamaño de salida crece de forma monótona con la calidad, cierto en la
+ * práctica para el codificador lossy de libwebp: a más calidad, igual o
+ * más bytes, nunca menos.
  *
  * Uso: pedir [firstQuality], codificar a esa calidad, pasar el resultado a
  * [next] para obtener la siguiente calidad a probar. Repetir hasta que
- * [next] devuelva null. En ese punto, [bestFittingQuality] tiene la mejor
- * calidad encontrada que cupo en el límite, o null si ninguna cupo.
+ * [next] devuelva null — converge dentro de [CONVERGENCE_EPSILON], no a un
+ * valor exacto, porque el dominio ya es continuo. En ese punto,
+ * [bestFittingQuality] tiene la mejor calidad encontrada que cupo en el
+ * límite, o null si ninguna cupo.
  *
  * **Con tiempo acotado, el orden en que se siembra la búsqueda importa,**
  * aunque esta clase no lo imponga: [next] solo reacciona a la calidad que
@@ -41,32 +47,43 @@ class QualitySearch(private val targetSizeBytes: Int) {
 
     private var low = MIN_QUALITY
     private var high = MAX_QUALITY
-    private var bestFitting: Int? = null
+    private var bestFitting: Float? = null
     private var exhausted = false
 
-    fun firstQuality(): Int = high
+    fun firstQuality(): Float = high
 
-    fun next(quality: Int, sizeBytes: Int): Int? {
+    fun next(quality: Float, sizeBytes: Int): Float? {
         if (exhausted) return null
 
         if (sizeBytes <= targetSizeBytes) {
             bestFitting = quality
-            low = quality + 1
+            low = quality
         } else {
-            high = quality - 1
+            high = quality
         }
 
-        if (low > high) {
+        if (high - low <= CONVERGENCE_EPSILON) {
             exhausted = true
             return null
         }
-        return (low + high) / 2
+        return (low + high) / 2f
     }
 
-    fun bestFittingQuality(): Int? = bestFitting
+    fun bestFittingQuality(): Float? = bestFitting
 
     companion object {
-        const val MIN_QUALITY = 0
-        const val MAX_QUALITY = 100
+        const val MIN_QUALITY = 0f
+        const val MAX_QUALITY = 100f
+
+        /**
+         * Precisión de convergencia (ADR-0022): con un dominio continuo no
+         * hay un "valor exacto" al que llegar — se para cuando el rango
+         * [low, high] ya es más chico que esto. Mismo valor usado en la
+         * investigación que validó el enfoque en dispositivo real (ver
+         * `docs/desarrollo/pruebas.md`); no hay medición de qué tan fino
+         * hace falta ir más allá de esto, así que no se afina más sin
+         * repetirla.
+         */
+        const val CONVERGENCE_EPSILON = 0.05f
     }
 }

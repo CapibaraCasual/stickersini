@@ -46,7 +46,7 @@ private class SweepMeasuringEncoder(private val delegate: SingleShotWebpEncoder)
     var callCount = 0
         private set
 
-    override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray {
+    override fun encode(frames: List<WebpFrame>, quality: Float, minimizeSize: Boolean): ByteArray {
         callCount++
         return delegate.encode(frames, quality, minimizeSize)
     }
@@ -101,7 +101,7 @@ class ResolutionFpsSweepTest {
         val sizeBytes: Int?,
         val attempts: Int,
         val frameCount: Int?,
-        val quality: Int?,
+        val quality: Float?,
         val outcome: String,
     )
 
@@ -124,7 +124,7 @@ class ResolutionFpsSweepTest {
         val measuring = SweepMeasuringEncoder(ProductionWebpEncoder)
         val encodeStart = System.nanoTime()
         var sizeBytes: Int? = null
-        var quality: Int? = null
+        var quality: Float? = null
         var frameCount: Int? = null
         var outcome: String
         try {

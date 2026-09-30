@@ -133,7 +133,7 @@ class SampledQualitySearchProbeTest {
             // enfoque de producción, que aplica el mismo atajo.
             var sampleAttempts = 1
             val firstBytes = ProductionWebpEncoder.encode(sample, PRODUCTION_FIRST_QUALITY_SEED, minimizeSize = false)
-            var sampleQuality: Int? = if (firstBytes.size <= scaledTarget) {
+            var sampleQuality: Float? = if (firstBytes.size <= scaledTarget) {
                 null
             } else {
                 sampleSearch.next(PRODUCTION_FIRST_QUALITY_SEED, firstBytes.size)
@@ -161,7 +161,7 @@ class SampledQualitySearchProbeTest {
                     // completa desde acá, sembrada con lo ya sabido (no
                     // reinicia desde cero).
                     val fullSearch = QualitySearch(ANIMATED_WEBP_TARGET_SIZE_BYTES)
-                    var quality: Int? = fullSearch.next(finalQuality, verifyBytes.size)
+                    var quality: Float? = fullSearch.next(finalQuality, verifyBytes.size)
                     while (quality != null) {
                         verifyAttempts++
                         verifyBytes = ProductionWebpEncoder.encode(frames, quality, minimizeSize = false)
@@ -206,6 +206,6 @@ class SampledQualitySearchProbeTest {
          * una comparación justa contra el enfoque actual si se parte de una
          * bisección más tonta que la de referencia.
          */
-        const val PRODUCTION_FIRST_QUALITY_SEED = 75
+        const val PRODUCTION_FIRST_QUALITY_SEED = 75f
     }
 }

@@ -19,12 +19,22 @@ static void throwEncodeException(JNIEnv *env, const char *message) {
     }
 }
 
-JNIEXPORT jbyteArray JNICALL
-Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
-        JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jint quality,
-        jboolean minimizeSize, jint method, jint threadLevel) {
-    (void) clazz;
-
+// Cuerpo real de la codificación, con `quality` en `float` (lo que
+// `WebPConfig.quality` es de verdad — ver `webp/encode.h`). Compartido por
+// `nativeEncode` (calidad entera, la vía de producción/medición de
+// siempre), `nativeEncodeFloat` (calidad fraccionaria, investigación de
+// ADR-0022 sobre el salto de tamaño entre calidades enteras consecutivas)
+// y `nativeEncodeTuned` (filtro de bloques configurable, investigación de
+// bloques visibles en contenido adverso real — ver
+// docs/desarrollo/pruebas.md). `filterStrength`/`autofilter`/
+// `filterSharpness`/`snsStrength` son los mismos valores que
+// `WebPConfigInit` ya deja por defecto (60/0/0/50) en `nativeEncode`/
+// `nativeEncodeFloat` — pasarlos explícitos no cambia nada ahí, solo los
+// hace configurables para `nativeEncodeTuned`.
+static jbyteArray encodeAnimation(
+        JNIEnv *env, jobjectArray bitmaps, jintArray durationsMs, jfloat quality,
+        jboolean minimizeSize, jint method, jint threadLevel, jboolean useSharpYuv,
+        jint filterStrength, jboolean autofilter, jint filterSharpness, jint snsStrength) {
     jsize frameCount = (*env)->GetArrayLength(env, bitmaps);
     if (frameCount <= 0) {
         throwEncodeException(env, "Se necesita al menos 1 fotograma");
@@ -129,7 +139,7 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
                         ok = 0;
                     } else {
                         config.lossless = 0;
-                        config.quality = (float) quality;
+                        config.quality = quality;
                         // Antes se dejaba en el valor por defecto de
                         // WebPConfigInit (4) sin decirlo en ningún lado.
                         // Ahora lo decide quien llama: el camino de
@@ -155,6 +165,21 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
                         // WebpThreadLevelBenchmarkTest); producción sigue
                         // pasando 0 hasta que una medición diga lo contrario.
                         config.thread_level = threadLevel;
+                        // use_sharp_yuv: RGB→YUV420 más nítido en bordes de
+                        // alto contraste (texto, UI de una grabación de
+                        // pantalla) a costa de tiempo de codificación — ver
+                        // ADR-0022, medido en docs/desarrollo/pruebas.md.
+                        config.use_sharp_yuv = useSharpYuv ? 1 : 0;
+                        // Filtro de bloques (deblocking) post-cuantización:
+                        // ver ADR-0022, investigación sobre bloques
+                        // visibles en contenido adverso real (bordes de un
+                        // personaje en movimiento). Valores por defecto de
+                        // WebPConfigInit (60/off/0/50) salvo que
+                        // nativeEncodeTuned pida otra cosa.
+                        config.filter_strength = filterStrength;
+                        config.autofilter = autofilter ? 1 : 0;
+                        config.filter_sharpness = filterSharpness;
+                        config.sns_strength = snsStrength;
                         if (!WebPValidateConfig(&config)) {
                             throwEncodeException(env, "Configuración de codificación inválida");
                             ok = 0;
@@ -202,4 +227,48 @@ Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
     WebPAnimEncoderDelete(encoder);
 
     return result;
+}
+
+// Valores por defecto de WebPConfigInit para el filtro de bloques (ver
+// config_enc.c, WEBP_PRESET_DEFAULT): nativeEncode/nativeEncodeFloat los
+// pasan explícitos para no duplicar el cuerpo, sin cambiar nada de lo ya
+// medido en ADR-0022.
+#define DEFAULT_FILTER_STRENGTH 60
+#define DEFAULT_AUTOFILTER JNI_FALSE
+#define DEFAULT_FILTER_SHARPNESS 0
+#define DEFAULT_SNS_STRENGTH 50
+
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncode(
+        JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jint quality,
+        jboolean minimizeSize, jint method, jint threadLevel, jboolean useSharpYuv) {
+    (void) clazz;
+    return encodeAnimation(
+            env, bitmaps, durationsMs, (jfloat) quality, minimizeSize, method, threadLevel, useSharpYuv,
+            DEFAULT_FILTER_STRENGTH, DEFAULT_AUTOFILTER, DEFAULT_FILTER_SHARPNESS, DEFAULT_SNS_STRENGTH);
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncodeFloat(
+        JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jfloat quality,
+        jboolean minimizeSize, jint method, jint threadLevel, jboolean useSharpYuv) {
+    (void) clazz;
+    return encodeAnimation(
+            env, bitmaps, durationsMs, quality, minimizeSize, method, threadLevel, useSharpYuv,
+            DEFAULT_FILTER_STRENGTH, DEFAULT_AUTOFILTER, DEFAULT_FILTER_SHARPNESS, DEFAULT_SNS_STRENGTH);
+}
+
+// Filtro de bloques configurable (ADR-0022, investigación): bloques
+// visibles reportados en contenido adverso real (bordes de un personaje
+// en movimiento) a calidad muy baja (RF-12 la fuerza para entrar en RF-10
+// con este tipo de contenido). `threadLevel=0`, `useSharpYuv=false`
+// fijos: ya medidos en ADR-0022, sin relación con lo que se investiga acá.
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_capibaracasual_stickersini_webp_NativeWebpEncoder_nativeEncodeTuned(
+        JNIEnv *env, jclass clazz, jobjectArray bitmaps, jintArray durationsMs, jfloat quality,
+        jint method, jint filterStrength, jboolean autofilter, jint filterSharpness, jint snsStrength) {
+    (void) clazz;
+    return encodeAnimation(
+            env, bitmaps, durationsMs, quality, JNI_FALSE, method, 0, JNI_FALSE,
+            filterStrength, autofilter, filterSharpness, snsStrength);
 }

@@ -29,28 +29,29 @@ const val MAX_CLIP_DURATION_MS = 5_000L
  * nativa) liberó margen de tiempo real. ADR-0018 lo subió a 10 tras sacar
  * la fase de `minimize_size` de `WebpAnimEncoder` (ADR-0006/ADR-0018),
  * midiendo contra un `.so` de **debug** (sin optimizar, `-O0`) — sin
- * saberlo en ese momento. **ADR-0019 corrige la medición (contra release,
- * `-O2`) y sube este valor a 20, con RF-06 acotado a 5 s** (decisión de
- * producto, igual que Sticker.ly): a 20 fps, el video real de referencia
- * usa 73.0% del límite de RF-10 (500 KB) con calidad 75 (la más alta) y
- * 58.1% de margen de tiempo en el peor caso de 5 corridas; el mismo
- * contenido a 24 fps ya ocupa 86.4% del límite — se prefirió 20 por el
- * margen de tamaño contra contenido más adverso que el de referencia
- * (screen recording): un video de alto movimiento real (tipo TikTok) no
- * se pudo conseguir para validar en esta ronda, así que 20 deja más
- * colchón que 24 frente a ese caso sin confirmar. Ruido puro (el peor
- * caso posible) sigue produciendo un resultado válido a 20 fps: cae al
- * piso fijo de fotogramas de ADR-0016 y acorta la duración, tal como está
- * diseñado — no un fallo nuevo.
+ * saberlo en ese momento. ADR-0019 corrige la medición (contra release,
+ * `-O2`) y lo sube a 20, con RF-06 acotado a 5 s (decisión de producto,
+ * igual que Sticker.ly).
  *
- * **Lección de método (ver también CLAUDE.md):** toda medición de esta
- * decisión hasta ADR-0018 se hizo contra un `.so` nativo de debug
- * (compilado sin optimizar) — el mismo contenido codifica 5.9×-6.6× más
- * rápido contra el `.so` de release (`-O2`, confirmado en
- * `compile_commands.json`). Una decisión de presupuesto de tiempo
- * (RNF-08) medida en debug da un techo mucho más bajo que el real.
+ * **ADR-0021 lo baja de 20 a 15**, sin tocar RF-06 ni la prioridad de
+ * fps/duración sobre calidad (ADR-0020): con la escalera de ADR-0020, fps
+ * y duración solo ceden como último recurso, así que el fps de prefiltro
+ * decide cuánto margen de tamaño le queda a calidad+resolución antes de
+ * necesitar ese último recurso — 20 fps deja poco margen (73.0% del
+ * límite de RF-10 con el contenido de referencia, a calidad máxima); 15
+ * deja bastante más (52.7%, ya medido en ADR-0019) sin perder fluidez
+ * perceptible frente a 20. Ese margen es lo que habilita el paso final
+ * de subir calidad hasta ~95% de RF-10 (ver KDoc de `WebpAnimEncoder`):
+ * a 20 fps casi no quedaba margen para ese paso; a 15, sí.
+ *
+ * **Lección de método (ver también CLAUDE.md):** toda medición hasta
+ * ADR-0018 se hizo contra un `.so` nativo de debug (compilado sin
+ * optimizar) — el mismo contenido codifica 5.9×-6.6× más rápido contra el
+ * `.so` de release (`-O2`, confirmado en `compile_commands.json`). Una
+ * decisión de presupuesto de tiempo (RNF-08) medida en debug da un techo
+ * mucho más bajo que el real.
  */
-const val VIDEO_PREFILTER_TARGET_FPS = 20
+const val VIDEO_PREFILTER_TARGET_FPS = 15
 
 /**
  * Decide, fotograma a fotograma y en el mismo orden en que `MediaCodec` los

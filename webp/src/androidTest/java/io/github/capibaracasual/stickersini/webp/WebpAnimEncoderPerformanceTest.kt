@@ -58,7 +58,7 @@ class WebpAnimEncoderPerformanceTest {
 
         private val runner = TimedAttemptRunner("webp-attempt")
 
-        override fun encode(frames: List<WebpFrame>, quality: Int, minimizeSize: Boolean): ByteArray {
+        override fun encode(frames: List<WebpFrame>, quality: Float, minimizeSize: Boolean): ByteArray {
             callCount++
             val attemptNumber = callCount
             val result = runner.run(PER_ATTEMPT_TIMEOUT_MS) { delegate.encode(frames, quality, minimizeSize) }

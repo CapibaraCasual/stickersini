@@ -86,7 +86,7 @@ class StaticWebpContainerOverheadTest {
         }
 
     private fun animatedSingleFrameBytes(bitmap: Bitmap, quality: Int): ByteArray =
-        NativeWebpEncoder.encode(listOf(WebpFrame(bitmap, FrameTiming.MIN_FRAME_DURATION_MS)), quality, minimizeSize = false)
+        NativeWebpEncoder.encode(listOf(WebpFrame(bitmap, FrameTiming.MIN_FRAME_DURATION_MS)), quality.toFloat(), minimizeSize = false)
 
     @Test
     fun comparaContenedorAnimadoDeUnFotogramaContraWebpEstaticoDelFramework() {

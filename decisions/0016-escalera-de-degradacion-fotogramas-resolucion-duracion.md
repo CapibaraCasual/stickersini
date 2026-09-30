@@ -1,6 +1,6 @@
 # ADR-0016: Escalera de degradación con piso de fotogramas fijo, resolución y duración como escalones
 
-- Estado: Aceptado e implementado
+- Estado: Aceptado e implementado — Superseded por [ADR-0020](0020-escalera-de-degradacion-calidad-resolucion-primero-fps-y-duracion-ultimo-recurso.md) (decisión de producto: fps y duración pasan a ser el último recurso, no un escalón intermedio — el piso fijo de fotogramas se reemplaza por un piso de fps)
 - Fecha: 2026-09-27
 
 ## Contexto
