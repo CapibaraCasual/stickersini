@@ -7,6 +7,8 @@ el proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [Sin publicar]
 
+## [0.12.0-alpha] - 2026-09-30
+
 ### Cambiado
 - **Escalera de degradación del sticker animado invertida (ADR-0020,
   reemplaza ADR-0016): calidad y resolución se agotan siempre sobre el

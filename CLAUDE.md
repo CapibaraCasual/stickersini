@@ -22,10 +22,9 @@ Los requisitos numerados están en `docs/desarrollo/requisitos.md`. Cíta sus ID
 
 ## Estado actual (retomar acá)
 
-Versión: `v0.11.0-alpha` (2026-09-28), con ADR-0020/0021/0022 sin
-publicar todavía (ver CHANGELOG, "[Sin publicar]"). Detalle completo en
-README, sección "Estado" y "Qué falta" — esto es solo el punteo para
-orientarse sin abrirlo primero. En orden:
+Versión: `v0.12.0-alpha` (2026-09-30). Detalle completo en README,
+sección "Estado" y "Qué falta" — esto es solo el punteo para orientarse
+sin abrirlo primero. En orden:
 
 1. **Pendiente inmediato: comparar `tiktok_9` a `tiktok_12`**
    (`/sdcard/Download/` del dispositivo de prueba) **y decidir si el

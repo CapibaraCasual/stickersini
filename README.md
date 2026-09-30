@@ -18,7 +18,7 @@ de internet.
 
 ## Estado
 
-En desarrollo. Versión actual: `0.11.0-alpha`. Todavía no hay versión
+En desarrollo. Versión actual: `0.12.0-alpha`. Todavía no hay versión
 publicada en Google Play.
 
 **Escalado bicúbico en recorte y zoom; `method`/`sharp_yuv` medidos, sin
